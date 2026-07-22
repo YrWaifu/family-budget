@@ -1,0 +1,15 @@
+.env
+.DS_Store
+.cache/
+.pnpm-store/
+backend/bin/
+backend/coverage.out
+frontend/dist/
+frontend/node_modules/
+frontend/coverage/
+*.log
+data/
+tmp_*/
+gocache/
+gopath/
+gomodcache/
