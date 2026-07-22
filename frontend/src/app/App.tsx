@@ -797,9 +797,36 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
         <button type="button" className={draft.kind === "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "income", is_essential: true })}>Доход</button>
       </div>
       {draft.kind !== "income" && (
-        <div className="segmented">
-          <button type="button" className={draft.is_essential !== false ? "selected" : ""} onClick={() => setDraft({ ...draft, is_essential: true })}>Обязательная</button>
-          <button type="button" className={draft.is_essential === false ? "selected" : ""} onClick={() => setDraft({ ...draft, is_essential: false })}>Необязательная</button>
+        <div className="space-y-2">
+          <p className="text-sm font-bold text-slate-500">Тип расхода</p>
+          <div className="required-choice">
+            <label className={draft.is_essential !== false ? "required-choice-active" : ""}>
+              <input
+                type="radio"
+                name={`essential-${category?.id ?? "new"}`}
+                checked={draft.is_essential !== false}
+                onChange={() => setDraft({ ...draft, is_essential: true })}
+              />
+              <span className="required-check"><Check size={14} /></span>
+              <span>
+                <b>Обязательная</b>
+                <small>То, без чего нельзя: продукты, дом, здоровье</small>
+              </span>
+            </label>
+            <label className={draft.is_essential === false ? "required-choice-active" : ""}>
+              <input
+                type="radio"
+                name={`essential-${category?.id ?? "new"}`}
+                checked={draft.is_essential === false}
+                onChange={() => setDraft({ ...draft, is_essential: false })}
+              />
+              <span className="required-check"><Check size={14} /></span>
+              <span>
+                <b>Необязательная</b>
+                <small>То, что можно сократить: покупки, кафе, развлечения</small>
+              </span>
+            </label>
+          </div>
         </div>
       )}
       <CategoryIconSelect value={draft.icon ?? "CircleEllipsis"} color={draft.color ?? "#38bdf8"} onChange={(icon) => setDraft({ ...draft, icon })} />

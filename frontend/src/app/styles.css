@@ -511,6 +511,79 @@ select {
   padding: 10px;
 }
 
+.required-choice {
+  display: grid;
+  gap: 8px;
+}
+
+.required-choice label {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 8px;
+  background: white;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.required-choice input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.required-check {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 2px solid rgb(203 213 225);
+  border-radius: 50%;
+  color: transparent;
+}
+
+.required-choice b,
+.required-choice small {
+  display: block;
+}
+
+.required-choice small {
+  margin-top: 2px;
+  color: rgb(100 116 139);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.required-choice-active {
+  border-color: rgb(17 24 39) !important;
+  background: rgb(248 250 252) !important;
+}
+
+.required-choice-active .required-check {
+  border-color: rgb(17 24 39);
+  background: rgb(17 24 39);
+  color: white;
+}
+
+.dark .required-choice label {
+  border-color: rgb(30 41 59);
+  background: rgb(2 6 23);
+}
+
+.dark .required-choice-active {
+  border-color: white !important;
+  background: rgb(30 41 59) !important;
+}
+
+.dark .required-choice-active .required-check {
+  border-color: white;
+  background: white;
+  color: rgb(15 23 42);
+}
+
 .profile-button {
   display: flex;
   min-height: 92px;
