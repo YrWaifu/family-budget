@@ -1,0 +1,104 @@
+name: Deploy to Beget
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH
+        env:
+          BEGET_HOST: ${{ secrets.BEGET_HOST }}
+          BEGET_SSH_KEY: ${{ secrets.BEGET_SSH_KEY }}
+          BEGET_PORT: ${{ secrets.BEGET_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$BEGET_HOST"
+          test -n "$BEGET_SSH_KEY"
+          PORT="${BEGET_PORT:-22}"
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$BEGET_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$PORT" "$BEGET_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release archive
+        env:
+          BEGET_HOST: ${{ secrets.BEGET_HOST }}
+          BEGET_USER: ${{ secrets.BEGET_USER }}
+          BEGET_PORT: ${{ secrets.BEGET_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$BEGET_HOST"
+          test -n "$BEGET_USER"
+          PORT="${BEGET_PORT:-22}"
+          ARCHIVE="/tmp/family-budget-${GITHUB_SHA}.tar.gz"
+
+          tar \
+            --exclude='.git' \
+            --exclude='.env' \
+            --exclude='.cache' \
+            --exclude='.pnpm-store' \
+            --exclude='gocache' \
+            --exclude='gopath' \
+            --exclude='gomodcache' \
+            --exclude='tmp_*' \
+            --exclude='frontend/node_modules' \
+            --exclude='frontend/dist' \
+            -czf "$ARCHIVE" .
+
+          scp -i ~/.ssh/deploy_key -P "$PORT" "$ARCHIVE" "$BEGET_USER@$BEGET_HOST:$ARCHIVE"
+
+      - name: Deploy on server
+        env:
+          BEGET_HOST: ${{ secrets.BEGET_HOST }}
+          BEGET_USER: ${{ secrets.BEGET_USER }}
+          BEGET_PORT: ${{ secrets.BEGET_PORT }}
+          BEGET_APP_DIR: ${{ secrets.BEGET_APP_DIR }}
+        run: |
+          set -euo pipefail
+          PORT="${BEGET_PORT:-22}"
+          APP_DIR="${BEGET_APP_DIR:-/opt/family-budget}"
+          ARCHIVE="/tmp/family-budget-${GITHUB_SHA}.tar.gz"
+
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "$BEGET_USER@$BEGET_HOST" \
+            "APP_DIR='$APP_DIR' ARCHIVE='$ARCHIVE' bash -se" <<'EOF'
+          set -euo pipefail
+
+          command -v docker >/dev/null
+          docker compose version >/dev/null
+
+          mkdir -p "$APP_DIR"
+          cd "$APP_DIR"
+
+          if [ -f .env ]; then
+            cp .env ".env.backup-$(date +%Y%m%d%H%M%S)"
+          fi
+
+          tar -xzf "$ARCHIVE" -C "$APP_DIR"
+          rm -f "$ARCHIVE"
+
+          if [ ! -f .env ]; then
+            cp .env.example .env
+            SECRET="$(date +%s%N | sha256sum | cut -d' ' -f1)"
+            sed -i "s/change-this-long-random-secret/$SECRET/" .env
+          fi
+
+          docker compose pull db
+          docker compose up --build -d --remove-orphans
+          docker image prune -f
+          docker compose ps
+          EOF

@@ -116,6 +116,29 @@ docker compose up --build -d
 
 Миграции применятся автоматически при следующем старте приложения.
 
+## Автодеплой через GitHub Actions
+
+В репозитории есть workflow `.github/workflows/deploy.yml`. При каждом push в `main` GitHub:
+
+1. собирает архив проекта;
+2. отправляет его на сервер по SSH;
+3. распаковывает в `/opt/family-budget` или путь из `BEGET_APP_DIR`;
+4. запускает `docker compose up --build -d --remove-orphans`.
+
+Данные PostgreSQL не пропадают, потому что они лежат в именованном Docker volume `family_budget_postgres_data`.
+
+Нужные GitHub Secrets:
+
+```text
+BEGET_HOST      IP-адрес сервера
+BEGET_USER      пользователь SSH, например root
+BEGET_SSH_KEY   приватный SSH-ключ
+BEGET_PORT      порт SSH, обычно 22, можно не задавать
+BEGET_APP_DIR   путь на сервере, по умолчанию /opt/family-budget, можно не задавать
+```
+
+Не запускайте `docker compose down -v`: флаг `-v` удаляет volume с базой данных.
+
 ## Ubuntu VPS
 
 1. Установите Docker и Docker Compose plugin.
