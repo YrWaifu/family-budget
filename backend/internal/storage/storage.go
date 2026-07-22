@@ -42,6 +42,7 @@ type TransactionInput struct {
 	Type            string     `json:"type"`
 	AmountCents     int64      `json:"amount_cents"`
 	CategoryID      int64      `json:"category_id"`
+	IsEssential     *bool      `json:"is_essential"`
 	Comment         string     `json:"comment"`
 	TransactionDate *time.Time `json:"transaction_date"`
 	CreatedBy       int64      `json:"-"`
@@ -266,14 +267,18 @@ func (r *Repository) CreateTransaction(ctx context.Context, in TransactionInput)
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return t, ErrIdempotentMiss
 	}
+	isEssential := any(nil)
+	if in.IsEssential != nil {
+		isEssential = *in.IsEssential
+	}
 	date := time.Now().In(r.loc)
 	if in.TransactionDate != nil {
 		date = in.TransactionDate.In(r.loc)
 	}
-	err := r.db.QueryRow(ctx, `INSERT INTO transactions(type, amount_cents, category_id, comment, transaction_date, created_by, idempotency_key)
-		VALUES($1,$2,$3,$4,$5,$6,$7)
+	err := r.db.QueryRow(ctx, `INSERT INTO transactions(type, amount_cents, category_id, is_essential, comment, transaction_date, created_by, idempotency_key)
+		VALUES($1,$2,$3,COALESCE($4, (SELECT is_essential FROM categories WHERE id=$3)),$5,$6,$7,$8)
 		ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
-		RETURNING id`, in.Type, in.AmountCents, in.CategoryID, strings.TrimSpace(in.Comment), date, in.CreatedBy, in.IdempotencyKey).Scan(&t.ID)
+		RETURNING id`, in.Type, in.AmountCents, in.CategoryID, isEssential, strings.TrimSpace(in.Comment), date, in.CreatedBy, in.IdempotencyKey).Scan(&t.ID)
 	if err != nil {
 		return t, err
 	}
@@ -308,7 +313,7 @@ func (r *Repository) Transactions(ctx context.Context, f TransactionFilters) ([]
 	}
 	if f.Essential == "true" || f.Essential == "false" {
 		args = append(args, f.Essential == "true")
-		clauses = append(clauses, fmt.Sprintf("c.is_essential=$%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("t.is_essential=$%d", len(args)))
 	}
 	if strings.TrimSpace(f.Query) != "" {
 		args = append(args, "%"+strings.ToLower(strings.TrimSpace(f.Query))+"%")
@@ -376,12 +381,16 @@ func (r *Repository) CommentSuggestions(ctx context.Context, categoryID int64) (
 }
 
 func (r *Repository) UpdateTransaction(ctx context.Context, id int64, in TransactionInput) (models.Transaction, error) {
+	isEssential := any(nil)
+	if in.IsEssential != nil {
+		isEssential = *in.IsEssential
+	}
 	date := time.Now().In(r.loc)
 	if in.TransactionDate != nil {
 		date = in.TransactionDate.In(r.loc)
 	}
-	tag, err := r.db.Exec(ctx, `UPDATE transactions SET type=$2, amount_cents=$3, category_id=$4, comment=$5, transaction_date=$6, updated_at=now() WHERE id=$1`,
-		id, in.Type, in.AmountCents, in.CategoryID, strings.TrimSpace(in.Comment), date)
+	tag, err := r.db.Exec(ctx, `UPDATE transactions SET type=$2, amount_cents=$3, category_id=$4, is_essential=COALESCE($5, (SELECT is_essential FROM categories WHERE id=$4)), comment=$6, transaction_date=$7, updated_at=now() WHERE id=$1`,
+		id, in.Type, in.AmountCents, in.CategoryID, isEssential, strings.TrimSpace(in.Comment), date)
 	if err != nil {
 		return models.Transaction{}, err
 	}
@@ -478,12 +487,12 @@ func (r *Repository) CategoryAnalytics(ctx context.Context, year, month int, ess
 	clauses := []string{"t.type='expense'", "t.transaction_date >= $1", "t.transaction_date < $2"}
 	if essential == "true" || essential == "false" {
 		args = append(args, essential == "true")
-		clauses = append(clauses, fmt.Sprintf("c.is_essential=$%d", len(args)))
+		clauses = append(clauses, fmt.Sprintf("t.is_essential=$%d", len(args)))
 	}
-	rows, err := r.db.Query(ctx, `SELECT c.id, c.name, c.icon, c.color, c.is_essential, count(t.id), COALESCE(sum(t.amount_cents),0)
+	rows, err := r.db.Query(ctx, `SELECT c.id, c.name, c.icon, c.color, t.is_essential, count(t.id), COALESCE(sum(t.amount_cents),0)
 		FROM categories c JOIN transactions t ON t.category_id=c.id
 		WHERE `+strings.Join(clauses, " AND ")+`
-		GROUP BY c.id ORDER BY sum(t.amount_cents) DESC`, args...)
+		GROUP BY c.id, t.is_essential ORDER BY sum(t.amount_cents) DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -711,7 +720,7 @@ func (r *Repository) EnsureDemoData(ctx context.Context) error {
 }
 
 func transactionSelect() string {
-	return `SELECT t.id, t.type, t.amount_cents, t.category_id, c.name, c.icon, c.color, c.is_essential, t.comment, t.transaction_date, t.created_by, u.name, t.created_at, t.updated_at
+	return `SELECT t.id, t.type, t.amount_cents, t.category_id, c.name, c.icon, c.color, c.is_essential, t.is_essential, t.comment, t.transaction_date, t.created_by, u.name, t.created_at, t.updated_at
 		FROM transactions t JOIN categories c ON c.id=t.category_id JOIN users u ON u.id=t.created_by`
 }
 
@@ -723,7 +732,7 @@ func normalizeKind(kind string) string {
 }
 
 func scanTransaction(t *models.Transaction) []any {
-	return []any{&t.ID, &t.Type, &t.AmountCents, &t.CategoryID, &t.CategoryName, &t.CategoryIcon, &t.CategoryColor, &t.CategoryIsEssential, &t.Comment, &t.TransactionDate, &t.CreatedBy, &t.AuthorName, &t.CreatedAt, &t.UpdatedAt}
+	return []any{&t.ID, &t.Type, &t.AmountCents, &t.CategoryID, &t.CategoryName, &t.CategoryIcon, &t.CategoryColor, &t.CategoryIsEssential, &t.IsEssential, &t.Comment, &t.TransactionDate, &t.CreatedBy, &t.AuthorName, &t.CreatedAt, &t.UpdatedAt}
 }
 
 func randomToken(size int) (string, error) {

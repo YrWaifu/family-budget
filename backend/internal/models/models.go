@@ -31,6 +31,7 @@ type Transaction struct {
 	CategoryIcon        string    `json:"category_icon"`
 	CategoryColor       string    `json:"category_color"`
 	CategoryIsEssential bool      `json:"category_is_essential"`
+	IsEssential         bool      `json:"is_essential"`
 	Comment             string    `json:"comment"`
 	TransactionDate     time.Time `json:"transaction_date"`
 	CreatedBy           int64     `json:"created_by"`

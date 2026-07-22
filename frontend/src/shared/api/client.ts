@@ -23,6 +23,7 @@ export type Transaction = {
   category_icon: string;
   category_color: string;
   category_is_essential: boolean;
+  is_essential: boolean;
   comment: string;
   transaction_date: string;
   created_by: number;
@@ -86,6 +87,7 @@ export type TransactionPayload = {
   type: "expense" | "income";
   amount_cents: number;
   category_id: number;
+  is_essential: boolean;
   comment: string;
   transaction_date?: string;
 };

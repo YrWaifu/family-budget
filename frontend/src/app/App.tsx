@@ -51,6 +51,7 @@ const transactionSchema = z.object({
   type: z.enum(["expense", "income"]),
   amount: z.string().refine((value) => amountToCents(value) > 0, "Введите сумму"),
   category_id: z.number().min(1, "Выберите категорию"),
+  is_essential: z.boolean(),
   transaction_date: z.string().min(1),
   comment: z.string().max(240),
 });
@@ -220,7 +221,7 @@ function ChartCard({ items }: { items: CategoryTotal[] }) {
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie data={data} dataKey="amount_cents" innerRadius="58%" outerRadius="86%" paddingAngle={3}>
-            {data.map((item) => <Cell key={item.category_id} fill={item.color} />)}
+            {data.map((item, index) => <Cell key={`${item.category_id}-${item.is_essential}-${index}`} fill={item.color} />)}
           </Pie>
           <Tooltip formatter={(value) => formatMoney(Number(value))} />
         </PieChart>
@@ -252,6 +253,7 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
       type: transaction?.type ?? "expense",
       amount: transaction ? String(transaction.amount_cents / 100) : "",
       category_id: transaction?.category_id ?? categories[0]?.id ?? 0,
+      is_essential: transaction?.is_essential ?? transaction?.category_is_essential ?? categories[0]?.is_essential ?? true,
       transaction_date: transaction ? isoDate(new Date(transaction.transaction_date)) : isoDate(),
       comment: transaction?.comment ?? "",
     },
@@ -275,13 +277,22 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
   useEffect(() => {
     if (!availableCategories.some((category) => category.id === form.getValues("category_id")) && availableCategories[0]) {
       form.setValue("category_id", availableCategories[0].id);
+      form.setValue("is_essential", availableCategories[0].is_essential);
     }
   }, [availableCategories, form, selectedType]);
+  const changeCategory = (value: number) => {
+    form.setValue("category_id", value);
+    const category = availableCategories.find((item) => item.id === value);
+    if (selectedType === "expense" && category) {
+      form.setValue("is_essential", category.is_essential);
+    }
+  };
   const submit = form.handleSubmit((values) => {
     mutation.mutate({
       type: values.type,
       amount_cents: amountToCents(values.amount),
       category_id: values.category_id,
+      is_essential: values.type === "expense" ? values.is_essential : true,
       comment: values.comment,
       transaction_date: new Date(values.transaction_date).toISOString(),
     });
@@ -312,7 +323,10 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
               <span>Сумма</span>
               <input inputMode="decimal" placeholder="150,50" {...form.register("amount")} />
             </label>
-            <CategorySelect categories={availableCategories} value={form.watch("category_id")} onChange={(value) => form.setValue("category_id", value)} />
+            <CategorySelect categories={availableCategories} value={form.watch("category_id")} onChange={changeCategory} />
+            {selectedType === "expense" && (
+              <RequiredChoice value={form.watch("is_essential")} onChange={(value) => form.setValue("is_essential", value)} name="transaction-essential" />
+            )}
             <label className="field">
               <span>Дата</span>
               <input type="date" {...form.register("transaction_date")} />
@@ -344,6 +358,7 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
 function QuickAmountDialog({ category, open, onOpenChange, onSaved }: { category: Category | null; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
   const [amount, setAmount] = useState("");
   const [comment, setComment] = useState("");
+  const [isEssential, setIsEssential] = useState(true);
   const queryClient = useQueryClient();
   const suggestions = useQuery({
     queryKey: ["commentSuggestions", category?.id],
@@ -351,12 +366,13 @@ function QuickAmountDialog({ category, open, onOpenChange, onSaved }: { category
     enabled: open && Boolean(category?.id),
   });
   const mutation = useMutation({
-    mutationFn: () => api.createTransaction({ type: "expense", amount_cents: amountToCents(amount), category_id: category!.id, comment, transaction_date: new Date().toISOString() }),
+    mutationFn: () => api.createTransaction({ type: "expense", amount_cents: amountToCents(amount), category_id: category!.id, is_essential: isEssential, comment, transaction_date: new Date().toISOString() }),
     onSuccess: () => {
       queryClient.invalidateQueries();
       onSaved();
       setAmount("");
       setComment("");
+      setIsEssential(true);
       onOpenChange(false);
     },
   });
@@ -364,8 +380,9 @@ function QuickAmountDialog({ category, open, onOpenChange, onSaved }: { category
     if (open) {
       setAmount("");
       setComment("");
+      setIsEssential(category?.is_essential ?? true);
     }
-  }, [open]);
+  }, [category?.is_essential, open]);
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ",", "0", "⌫"];
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -384,6 +401,9 @@ function QuickAmountDialog({ category, open, onOpenChange, onSaved }: { category
             {keys.map((key) => (
               <button key={key} onClick={() => setAmount((current) => key === "⌫" ? current.slice(0, -1) : current + key)}>{key}</button>
             ))}
+          </div>
+          <div className="mt-4">
+            <RequiredChoice value={isEssential} onChange={setIsEssential} name="quick-essential" />
           </div>
           <label className="field mt-4">
             <span>Комментарий</span>
@@ -470,6 +490,32 @@ function CategoryIconSelect({ value, color, onChange }: { value: string; color: 
         </Select.Portal>
       </Select.Root>
     </label>
+  );
+}
+
+function RequiredChoice({ value, onChange, name }: { value: boolean; onChange: (value: boolean) => void; name: string }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-bold text-slate-500">Тип расхода</p>
+      <div className="required-choice">
+        <label className={value ? "required-choice-active" : ""}>
+          <input type="radio" name={name} checked={value} onChange={() => onChange(true)} />
+          <span className="required-check"><Check size={14} /></span>
+          <span>
+            <b>Обязательная</b>
+            <small>То, без чего нельзя: продукты, дом, здоровье</small>
+          </span>
+        </label>
+        <label className={!value ? "required-choice-active" : ""}>
+          <input type="radio" name={name} checked={!value} onChange={() => onChange(false)} />
+          <span className="required-check"><Check size={14} /></span>
+          <span>
+            <b>Необязательная</b>
+            <small>То, что можно сократить: покупки, кафе, развлечения</small>
+          </span>
+        </label>
+      </div>
+    </div>
   );
 }
 
@@ -601,7 +647,7 @@ function AnalyticsPage() {
             <XAxis dataKey="name" hide />
             <Tooltip formatter={(value) => formatMoney(Number(value))} />
             <Bar dataKey="amount_cents" radius={[6, 6, 0, 0]}>
-              {filteredItems.map((item) => <Cell key={item.category_id} fill={item.color} />)}
+              {filteredItems.map((item) => <Cell key={`${item.category_id}-${item.is_essential}`} fill={item.color} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -618,7 +664,7 @@ function CategoryBreakdown({ items, total }: { items: CategoryTotal[]; total: nu
       {items.map((item) => {
         const percent = total ? Math.round((item.amount_cents / total) * 100) : 0;
         return (
-          <div className="space-y-2 p-3" key={item.category_id}>
+          <div className="space-y-2 p-3" key={`${item.category_id}-${item.is_essential}`}>
             <div className="flex items-center gap-3">
               <span className="category-badge small" style={{ backgroundColor: item.color }}>
                 <CategoryIcon name={item.icon} className="h-5 w-5 text-white" />
@@ -757,7 +803,7 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
     onError: (error) => setMessage(error.message || "Категория уже используется. Ее можно скрыть."),
   });
   const colors = ["#22c55e", "#f97316", "#3b82f6", "#14b8a6", "#ef4444", "#8b5cf6", "#06b6d4", "#f43f5e", "#eab308", "#64748b"];
-  const meta = `${draft.kind === "income" ? "Доход" : "Расход"} · ${draft.kind === "income" || draft.is_essential ? "обязательная" : "необязательная"} · ${draft.is_active === false ? "скрыта" : "активна"}`;
+  const meta = `${draft.kind === "income" ? "Доход" : "Расход"} · ${draft.is_active === false ? "скрыта" : "активна"}`;
   if (!expanded) {
     return (
       <button className="panel category-editor-summary" type="button" onClick={() => setExpanded(true)}>
@@ -796,39 +842,6 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
         <button type="button" className={draft.kind !== "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "expense" })}>Расход</button>
         <button type="button" className={draft.kind === "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "income", is_essential: true })}>Доход</button>
       </div>
-      {draft.kind !== "income" && (
-        <div className="space-y-2">
-          <p className="text-sm font-bold text-slate-500">Тип расхода</p>
-          <div className="required-choice">
-            <label className={draft.is_essential !== false ? "required-choice-active" : ""}>
-              <input
-                type="radio"
-                name={`essential-${category?.id ?? "new"}`}
-                checked={draft.is_essential !== false}
-                onChange={() => setDraft({ ...draft, is_essential: true })}
-              />
-              <span className="required-check"><Check size={14} /></span>
-              <span>
-                <b>Обязательная</b>
-                <small>То, без чего нельзя: продукты, дом, здоровье</small>
-              </span>
-            </label>
-            <label className={draft.is_essential === false ? "required-choice-active" : ""}>
-              <input
-                type="radio"
-                name={`essential-${category?.id ?? "new"}`}
-                checked={draft.is_essential === false}
-                onChange={() => setDraft({ ...draft, is_essential: false })}
-              />
-              <span className="required-check"><Check size={14} /></span>
-              <span>
-                <b>Необязательная</b>
-                <small>То, что можно сократить: покупки, кафе, развлечения</small>
-              </span>
-            </label>
-          </div>
-        </div>
-      )}
       <CategoryIconSelect value={draft.icon ?? "CircleEllipsis"} color={draft.color ?? "#38bdf8"} onChange={(icon) => setDraft({ ...draft, icon })} />
       <div className="space-y-2">
         <p className="text-sm font-bold text-slate-500">Цвет</p>

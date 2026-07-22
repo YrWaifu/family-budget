@@ -32,6 +32,7 @@ CREATE TABLE transactions (
   type TEXT NOT NULL CHECK (type IN ('expense', 'income')),
   amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
   category_id BIGINT NOT NULL REFERENCES categories(id),
+  is_essential BOOLEAN NOT NULL DEFAULT true,
   comment TEXT NOT NULL DEFAULT '' CHECK (char_length(comment) <= 240),
   transaction_date TIMESTAMPTZ NOT NULL,
   created_by BIGINT NOT NULL REFERENCES users(id),
