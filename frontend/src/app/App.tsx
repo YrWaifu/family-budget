@@ -28,6 +28,7 @@ import {
   Home,
   LogOut,
   Moon,
+  PiggyBank,
   Plus,
   Search,
   Settings,
@@ -110,14 +111,16 @@ function Shell({ user, onLogout }: { user: User; onLogout: () => void }) {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/history" element={<HistoryPage />} />
+            <Route path="/goals" element={<GoalsPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
-        <nav className="fixed bottom-0 left-1/2 z-30 grid w-full max-w-xl -translate-x-1/2 grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        <nav className="fixed bottom-0 left-1/2 z-30 grid w-full max-w-xl -translate-x-1/2 grid-cols-5 border-t border-slate-200 bg-white/95 px-2 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
           <NavItem to="/" icon={<Home size={21} />} label="Главная" />
           <NavItem to="/history" icon={<History size={21} />} label="История" />
+          <NavItem to="/goals" icon={<PiggyBank size={21} />} label="Цели" />
           <NavItem to="/analytics" icon={<BarChart3 size={21} />} label="Аналитика" />
           <NavItem to="/settings" icon={<Settings size={21} />} label="Еще" />
         </nav>
@@ -211,7 +214,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function ChartCard({ items }: { items: CategoryTotal[] }) {
-  const data = items.length ? items : [{ name: "Нет расходов", amount_cents: 1, color: "#cbd5e1", category_id: 0, icon: "CircleEllipsis" }];
+  const data = items.length ? items : [{ name: "Нет расходов", amount_cents: 1, color: "#cbd5e1", category_id: 0, icon: "CircleEllipsis", is_essential: true, transactions_count: 0 }];
   return (
     <div className="panel h-56 p-3">
       <ResponsiveContainer width="100%" height="100%">
@@ -262,7 +265,13 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
     },
   });
   const selectedType = form.watch("type");
+  const selectedCategoryID = form.watch("category_id");
   const availableCategories = useMemo(() => categories.filter((category) => category.kind === selectedType), [categories, selectedType]);
+  const suggestions = useQuery({
+    queryKey: ["commentSuggestions", selectedCategoryID],
+    queryFn: () => api.commentSuggestions(selectedCategoryID),
+    enabled: open && selectedCategoryID > 0,
+  });
   useEffect(() => {
     if (!availableCategories.some((category) => category.id === form.getValues("category_id")) && availableCategories[0]) {
       form.setValue("category_id", availableCategories[0].id);
@@ -312,6 +321,15 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
               <span>Комментарий</span>
               <input maxLength={240} placeholder="Необязательно" {...form.register("comment")} />
             </label>
+            {(suggestions.data?.suggestions ?? []).length > 0 && (
+              <div className="suggestion-row">
+                {suggestions.data!.suggestions.map((comment) => (
+                  <button key={comment} type="button" className="suggestion-chip" onClick={() => form.setValue("comment", comment)}>
+                    {comment}
+                  </button>
+                ))}
+              </div>
+            )}
             {mutation.error && <p className="error-text">{mutation.error.message}</p>}
             <button className="primary-button w-full justify-center" disabled={mutation.isPending}>
               <Check size={19} /> Готово
@@ -325,18 +343,28 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
 
 function QuickAmountDialog({ category, open, onOpenChange, onSaved }: { category: Category | null; open: boolean; onOpenChange: (open: boolean) => void; onSaved: () => void }) {
   const [amount, setAmount] = useState("");
+  const [comment, setComment] = useState("");
   const queryClient = useQueryClient();
+  const suggestions = useQuery({
+    queryKey: ["commentSuggestions", category?.id],
+    queryFn: () => api.commentSuggestions(category!.id),
+    enabled: open && Boolean(category?.id),
+  });
   const mutation = useMutation({
-    mutationFn: () => api.createTransaction({ type: "expense", amount_cents: amountToCents(amount), category_id: category!.id, comment: "", transaction_date: new Date().toISOString() }),
+    mutationFn: () => api.createTransaction({ type: "expense", amount_cents: amountToCents(amount), category_id: category!.id, comment, transaction_date: new Date().toISOString() }),
     onSuccess: () => {
       queryClient.invalidateQueries();
       onSaved();
       setAmount("");
+      setComment("");
       onOpenChange(false);
     },
   });
   useEffect(() => {
-    if (open) setAmount("");
+    if (open) {
+      setAmount("");
+      setComment("");
+    }
   }, [open]);
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ",", "0", "⌫"];
   return (
@@ -357,6 +385,19 @@ function QuickAmountDialog({ category, open, onOpenChange, onSaved }: { category
               <button key={key} onClick={() => setAmount((current) => key === "⌫" ? current.slice(0, -1) : current + key)}>{key}</button>
             ))}
           </div>
+          <label className="field mt-4">
+            <span>Комментарий</span>
+            <input maxLength={240} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Необязательно" />
+          </label>
+          {(suggestions.data?.suggestions ?? []).length > 0 && (
+            <div className="suggestion-row mt-2">
+              {suggestions.data!.suggestions.map((item) => (
+                <button key={item} type="button" className="suggestion-chip" onClick={() => setComment(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          )}
           {mutation.error && <p className="error-text">{mutation.error.message}</p>}
           <button className="primary-button mt-4 w-full justify-center" disabled={amountToCents(amount) <= 0 || mutation.isPending} onClick={() => mutation.mutate()}>
             <Check size={19} /> Готово
@@ -396,10 +437,46 @@ function CategorySelect({ categories, value, onChange }: { categories: Category[
   );
 }
 
+function CategoryIconSelect({ value, color, onChange }: { value: string; color: string; onChange: (value: string) => void }) {
+  const selected = iconOptions.find((option) => option.name === value) ?? iconOptions[iconOptions.length - 1];
+  return (
+    <label className="field">
+      <span>Иконка</span>
+      <Select.Root value={value} onValueChange={onChange}>
+        <Select.Trigger className="select-trigger">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="category-badge tiny" style={{ backgroundColor: color }}>
+              <CategoryIcon name={selected.name} className="h-4 w-4 text-white" />
+            </span>
+            <Select.Value />
+          </span>
+          <Select.Icon><ChevronDown size={18} /></Select.Icon>
+        </Select.Trigger>
+        <Select.Portal>
+          <Select.Content className="select-content">
+            <Select.Viewport>
+              {iconOptions.map((option) => (
+                <Select.Item className="select-item" value={option.name} key={option.name}>
+                  <Select.ItemText>
+                    <span className="flex items-center gap-2">
+                      <CategoryIcon name={option.name} className="h-4 w-4" />
+                      <span>{option.label}</span>
+                    </span>
+                  </Select.ItemText>
+                </Select.Item>
+              ))}
+            </Select.Viewport>
+          </Select.Content>
+        </Select.Portal>
+      </Select.Root>
+    </label>
+  );
+}
+
 function HistoryPage() {
-  const [filters, setFilters] = useState({ q: "", type: "", category: "" });
+  const [filters, setFilters] = useState({ q: "", type: "", category: "", essential: "" });
   const [date, setDate] = useState(() => new Date());
-  const query = `?year=${date.getFullYear()}&month=${date.getMonth() + 1}&limit=80&q=${encodeURIComponent(filters.q)}${filters.type ? `&type=${filters.type}` : ""}${filters.category ? `&category_id=${filters.category}` : ""}`;
+  const query = `?year=${date.getFullYear()}&month=${date.getMonth() + 1}&limit=80&q=${encodeURIComponent(filters.q)}${filters.type ? `&type=${filters.type}` : ""}${filters.category ? `&category_id=${filters.category}` : ""}${filters.essential ? `&essential=${filters.essential}` : ""}`;
   const categories = useQuery({ queryKey: ["categories", "all"], queryFn: () => api.categories(true) });
   const transactions = useQuery({ queryKey: ["transactions", query], queryFn: () => api.transactions(query) });
   const queryClient = useQueryClient();
@@ -417,6 +494,8 @@ function HistoryPage() {
         <FilterChip active={!filters.type} onClick={() => setFilters({ ...filters, type: "" })}>Все</FilterChip>
         <FilterChip active={filters.type === "expense"} onClick={() => setFilters({ ...filters, type: "expense" })}>Расходы</FilterChip>
         <FilterChip active={filters.type === "income"} onClick={() => setFilters({ ...filters, type: "income" })}>Доходы</FilterChip>
+        <FilterChip active={filters.essential === "true"} onClick={() => setFilters({ ...filters, essential: filters.essential === "true" ? "" : "true" })}>Обязательные</FilterChip>
+        <FilterChip active={filters.essential === "false"} onClick={() => setFilters({ ...filters, essential: filters.essential === "false" ? "" : "false" })}>Необязательные</FilterChip>
         {(categories.data?.categories ?? []).map((category) => (
           <FilterChip key={category.id} active={filters.category === String(category.id)} onClick={() => setFilters({ ...filters, category: filters.category === String(category.id) ? "" : String(category.id) })}>
             {category.name}
@@ -463,18 +542,48 @@ function TransactionList({ items, categories, onChanged, compact }: { items: Tra
 
 function AnalyticsPage() {
   const [date, setDate] = useState(() => new Date());
+  const [essentialFilter, setEssentialFilter] = useState("");
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const summary = useQuery({ queryKey: ["summary", year, month], queryFn: () => api.summary(year, month) });
-  const categories = useQuery({ queryKey: ["categoryAnalytics", year, month], queryFn: () => api.categoryAnalytics(year, month) });
+  const categories = useQuery({ queryKey: ["categoryAnalytics", year, month, essentialFilter], queryFn: () => api.categoryAnalytics(year, month, essentialFilter) });
+  const allCategories = useQuery({ queryKey: ["categoryAnalytics", year, month, "all"], queryFn: () => api.categoryAnalytics(year, month) });
   const timeline = useQuery({ queryKey: ["timeline", year, month], queryFn: () => api.timeline(year, month) });
   const chartData = timeline.data?.items.map((item) => ({ ...item, day: item.date.slice(8), expense: item.expense_cents / 100, income: item.income_cents / 100 })) ?? [];
+  const allItems = allCategories.data?.items ?? [];
+  const totalExpenses = allItems.reduce((sum, item) => sum + item.amount_cents, 0);
+  const essentialTotal = allItems.filter((item) => item.is_essential).reduce((sum, item) => sum + item.amount_cents, 0);
+  const optionalTotal = totalExpenses - essentialTotal;
+  const filteredItems = categories.data?.items ?? [];
   return (
     <div className="space-y-4 pb-8">
       <MonthSwitcher date={date} onChange={setDate} />
       <div className="grid grid-cols-2 gap-3">
         <SmallStat title="Расходы" value={formatMoney(summary.data?.expense_cents ?? 0)} />
         <SmallStat title="Доходы" value={formatMoney(summary.data?.income_cents ?? 0)} />
+      </div>
+      <div className="panel space-y-3 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm text-slate-500">Обязательные</p>
+            <strong className="text-lg">{formatMoney(essentialTotal)}</strong>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-slate-500">Необязательные</p>
+            <strong className="text-lg">{formatMoney(optionalTotal)}</strong>
+          </div>
+        </div>
+        <div className="progress-track">
+          <div className="progress-fill bg-sky-500" style={{ width: `${totalExpenses ? (essentialTotal / totalExpenses) * 100 : 0}%` }} />
+        </div>
+        <p className="text-xs font-semibold text-slate-500">
+          {totalExpenses ? `${Math.round((optionalTotal / totalExpenses) * 100)}% расходов можно пересмотреть` : "За месяц расходов пока нет"}
+        </p>
+      </div>
+      <div className="segmented segmented-3">
+        <button type="button" className={!essentialFilter ? "selected" : ""} onClick={() => setEssentialFilter("")}>Все</button>
+        <button type="button" className={essentialFilter === "true" ? "selected" : ""} onClick={() => setEssentialFilter("true")}>Обязательные</button>
+        <button type="button" className={essentialFilter === "false" ? "selected" : ""} onClick={() => setEssentialFilter("false")}>Необязательные</button>
       </div>
       <div className="panel h-64 p-3">
         <ResponsiveContainer width="100%" height="100%">
@@ -488,15 +597,78 @@ function AnalyticsPage() {
       </div>
       <div className="panel h-72 p-3">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={categories.data?.items ?? []}>
+          <BarChart data={filteredItems}>
             <XAxis dataKey="name" hide />
             <Tooltip formatter={(value) => formatMoney(Number(value))} />
             <Bar dataKey="amount_cents" radius={[6, 6, 0, 0]}>
-              {(categories.data?.items ?? []).map((item) => <Cell key={item.category_id} fill={item.color} />)}
+              {filteredItems.map((item) => <Cell key={item.category_id} fill={item.color} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
+      <CategoryBreakdown items={filteredItems} total={filteredItems.reduce((sum, item) => sum + item.amount_cents, 0)} />
+    </div>
+  );
+}
+
+function CategoryBreakdown({ items, total }: { items: CategoryTotal[]; total: number }) {
+  if (!items.length) return <div className="empty-panel">Нет расходов для выбранного фильтра</div>;
+  return (
+    <div className="panel divide-y divide-slate-100 overflow-hidden dark:divide-slate-800">
+      {items.map((item) => {
+        const percent = total ? Math.round((item.amount_cents / total) * 100) : 0;
+        return (
+          <div className="space-y-2 p-3" key={item.category_id}>
+            <div className="flex items-center gap-3">
+              <span className="category-badge small" style={{ backgroundColor: item.color }}>
+                <CategoryIcon name={item.icon} className="h-5 w-5 text-white" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-bold">{item.name}</p>
+                <p className="text-xs text-slate-500">{item.is_essential ? "Обязательная" : "Необязательная"} · {item.transactions_count} оп.</p>
+              </div>
+              <div className="text-right">
+                <strong>{formatMoney(item.amount_cents)}</strong>
+                <p className="text-xs text-slate-500">{percent}%</p>
+              </div>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${percent}%`, backgroundColor: item.color }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function GoalsPage() {
+  const queryClient = useQueryClient();
+  const goals = useQuery({ queryKey: ["goals"], queryFn: api.goals });
+  const items = goals.data?.goals ?? [];
+  const targetTotal = items.reduce((sum, goal) => sum + goal.target_amount_cents, 0);
+  const currentTotal = items.reduce((sum, goal) => sum + goal.current_amount_cents, 0);
+  const progress = targetTotal ? Math.min(100, (currentTotal / targetTotal) * 100) : 0;
+  return (
+    <div className="space-y-4 pb-8">
+      <section className="hero-panel">
+        <p className="text-sm text-white/70">Цели</p>
+        <strong className="mt-1 block text-4xl font-black tracking-normal">{formatMoney(currentTotal)}</strong>
+        <div className="mt-5 flex items-center justify-between text-sm font-bold text-white/80">
+          <span>Накоплено</span>
+          <span>{Math.round(progress)}%</span>
+        </div>
+        <div className="mt-2 h-2 rounded-full bg-white/15">
+          <div className="h-full rounded-full bg-white" style={{ width: `${progress}%` }} />
+        </div>
+        <p className="mt-3 text-sm text-white/70">До всех целей осталось {formatMoney(Math.max(0, targetTotal - currentTotal))}</p>
+      </section>
+      <GoalRow onSaved={() => queryClient.invalidateQueries()} />
+      {items.length ? (
+        items.map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)
+      ) : (
+        <div className="empty-panel">Целей пока нет</div>
+      )}
     </div>
   );
 }
@@ -505,7 +677,6 @@ function SettingsPage() {
   const queryClient = useQueryClient();
   const categories = useQuery({ queryKey: ["categories-all"], queryFn: () => api.categories(true) });
   const expenseCategories = useQuery({ queryKey: ["categories", "expense", "all"], queryFn: () => api.categories(true, "expense") });
-  const goals = useQuery({ queryKey: ["goals"], queryFn: api.goals });
   const recurring = useQuery({ queryKey: ["recurring"], queryFn: api.recurring });
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   useEffect(() => {
@@ -520,16 +691,12 @@ function SettingsPage() {
       <Tabs.Root defaultValue="categories" className="space-y-4">
         <Tabs.List className="tabs-list">
           <Tabs.Trigger value="categories">Категории</Tabs.Trigger>
-          <Tabs.Trigger value="goals">Цели</Tabs.Trigger>
           <Tabs.Trigger value="regular">Регулярные</Tabs.Trigger>
+          <Tabs.Trigger value="backup">Бэкап</Tabs.Trigger>
         </Tabs.List>
         <Tabs.Content value="categories" className="space-y-2">
           <CategoryEditor onSaved={() => queryClient.invalidateQueries()} />
           {(categories.data?.categories ?? []).map((category) => <CategoryEditor key={category.id} category={category} onSaved={() => queryClient.invalidateQueries()} />)}
-        </Tabs.Content>
-        <Tabs.Content value="goals" className="space-y-2">
-          {(goals.data?.goals ?? []).map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)}
-          <GoalRow onSaved={() => queryClient.invalidateQueries()} />
         </Tabs.Content>
         <Tabs.Content value="regular" className="space-y-2">
           <div className="panel space-y-1 p-4">
@@ -541,6 +708,20 @@ function SettingsPage() {
           <RecurringRow categories={expenseCategories.data?.categories ?? []} onSaved={() => queryClient.invalidateQueries()} />
           {(recurring.data?.recurring_payments ?? []).map((payment) => <RecurringRow key={payment.id} payment={payment} categories={expenseCategories.data?.categories ?? []} onSaved={() => queryClient.invalidateQueries()} />)}
         </Tabs.Content>
+        <Tabs.Content value="backup" className="space-y-2">
+          <div className="panel space-y-3 p-4">
+            <h2 className="text-lg font-bold">Бэкап данных</h2>
+            <p className="text-sm text-slate-500">
+              Скачивается JSON-файл со всеми профилями, категориями, операциями, целями и регулярными шаблонами.
+            </p>
+            <a className="primary-button justify-center" href="/api/v1/backup">
+              <Download size={18} /> Скачать бэкап
+            </a>
+            <a className="secondary-button justify-center" href="/api/v1/export?format=csv">
+              <Download size={18} /> Скачать историю CSV
+            </a>
+          </div>
+        </Tabs.Content>
       </Tabs.Root>
     </div>
   );
@@ -548,7 +729,7 @@ function SettingsPage() {
 
 function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: () => void }) {
   const isNew = !category;
-  const [draft, setDraft] = useState<Partial<Category>>(category ?? { name: "", icon: "CircleEllipsis", color: "#38bdf8", kind: "expense", sort_order: 130, is_active: true });
+  const [draft, setDraft] = useState<Partial<Category>>(category ?? { name: "", icon: "CircleEllipsis", color: "#38bdf8", kind: "expense", sort_order: 130, is_active: true, is_essential: true });
   const [message, setMessage] = useState("");
   const mutation = useMutation({ mutationFn: () => api.saveCategory(draft), onSuccess: onSaved });
   const remove = useMutation({
@@ -565,7 +746,9 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="font-bold">{isNew ? "Новая категория" : draft.name}</h3>
-          <p className="text-xs text-slate-500">{draft.kind === "income" ? "Доход" : "Расход"} · {draft.is_active === false ? "скрыта" : "активна"}</p>
+          <p className="text-xs text-slate-500">
+            {draft.kind === "income" ? "Доход" : "Расход"} · {draft.kind === "income" || draft.is_essential ? "обязательная" : "необязательная"} · {draft.is_active === false ? "скрыта" : "активна"}
+          </p>
         </div>
       </div>
       <label className="field">
@@ -574,8 +757,15 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
       </label>
       <div className="segmented">
         <button type="button" className={draft.kind !== "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "expense" })}>Расход</button>
-        <button type="button" className={draft.kind === "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "income" })}>Доход</button>
+        <button type="button" className={draft.kind === "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "income", is_essential: true })}>Доход</button>
       </div>
+      {draft.kind !== "income" && (
+        <div className="segmented">
+          <button type="button" className={draft.is_essential !== false ? "selected" : ""} onClick={() => setDraft({ ...draft, is_essential: true })}>Обязательная</button>
+          <button type="button" className={draft.is_essential === false ? "selected" : ""} onClick={() => setDraft({ ...draft, is_essential: false })}>Необязательная</button>
+        </div>
+      )}
+      <CategoryIconSelect value={draft.icon ?? "CircleEllipsis"} color={draft.color ?? "#38bdf8"} onChange={(icon) => setDraft({ ...draft, icon })} />
       <div className="space-y-2">
         <p className="text-sm font-bold text-slate-500">Цвет</p>
         <div className="color-grid">
@@ -590,24 +780,6 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
             />
           ))}
           <input className="color-input" type="color" value={draft.color ?? "#38bdf8"} onChange={(event) => setDraft({ ...draft, color: event.target.value })} />
-        </div>
-      </div>
-      <div className="space-y-2">
-        <p className="text-sm font-bold text-slate-500">Иконка</p>
-        <div className="icon-picker">
-          {iconOptions.map((option) => (
-            <button
-              key={option.name}
-              type="button"
-              className={`icon-choice ${draft.icon === option.name ? "icon-choice-active" : ""}`}
-              onClick={() => setDraft({ ...draft, icon: option.name })}
-            >
-              <span className="category-badge tiny" style={{ backgroundColor: draft.color }}>
-                <CategoryIcon name={option.name} className="h-4 w-4 text-white" />
-              </span>
-              <span>{option.label}</span>
-            </button>
-          ))}
         </div>
       </div>
       {message && <p className="error-text">{message}</p>}
@@ -627,7 +799,7 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
             {(draft.is_active ?? true) ? "Скрыть" : "Показать"}
           </button>
         ) : (
-          <button className="secondary-button justify-center" onClick={() => setDraft({ name: "", icon: "CircleEllipsis", color: "#38bdf8", kind: "expense", sort_order: 130, is_active: true })}>
+          <button className="secondary-button justify-center" onClick={() => setDraft({ name: "", icon: "CircleEllipsis", color: "#38bdf8", kind: "expense", sort_order: 130, is_active: true, is_essential: true })}>
             Очистить
           </button>
         )}
@@ -645,24 +817,68 @@ function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
   const [name, setName] = useState(goal?.name ?? "");
   const [target, setTarget] = useState(goal ? String(goal.target_amount_cents / 100) : "");
   const [deposit, setDeposit] = useState("");
+  const [message, setMessage] = useState("");
   const save = useMutation({ mutationFn: () => api.saveGoal({ ...goal, name, target_amount_cents: amountToCents(target), current_amount_cents: goal?.current_amount_cents ?? 0, icon: "PiggyBank", color: goal?.color ?? "#38bdf8", is_completed: goal?.is_completed ?? false }), onSuccess: onSaved });
-  const add = useMutation({ mutationFn: () => api.depositGoal(goal!.id, amountToCents(deposit)), onSuccess: onSaved });
+  const add = useMutation({ mutationFn: () => api.depositGoal(goal!.id, amountToCents(deposit)), onSuccess: () => { setDeposit(""); onSaved(); } });
+  const remove = useMutation({ mutationFn: () => api.deleteGoal(goal!.id), onSuccess: onSaved });
   const progress = goal ? Math.min(100, (goal.current_amount_cents / goal.target_amount_cents) * 100) : 0;
+  const saveGoal = () => {
+    if (!name.trim() || amountToCents(target) <= 0) {
+      setMessage("Заполни название и сумму цели");
+      return;
+    }
+    setMessage("");
+    save.mutate();
+  };
   return (
-    <div className="panel space-y-3 p-3">
-      <div className="grid grid-cols-[1fr_auto] gap-2">
-        <input className="plain-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Цель" />
-        <button className="icon-button" onClick={() => save.mutate()}><Check size={18} /></button>
+    <div className="panel space-y-4 p-4">
+      <div className="flex items-center gap-3">
+        <span className="category-badge small" style={{ backgroundColor: goal?.color ?? "#38bdf8" }}>
+          <PiggyBank size={20} className="text-white" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-bold">{goal ? goal.name : "Новая цель"}</h3>
+          {goal && <p className="text-xs text-slate-500">Осталось {formatMoney(Math.max(0, goal.target_amount_cents - goal.current_amount_cents))}</p>}
+        </div>
       </div>
-      <input className="plain-input" inputMode="decimal" value={target} onChange={(event) => setTarget(event.target.value)} placeholder="Сумма" />
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="field">
+          <span>Название</span>
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, отпуск" />
+        </label>
+        <label className="field">
+          <span>Нужно накопить</span>
+          <input inputMode="decimal" value={target} onChange={(event) => setTarget(event.target.value)} placeholder="100000" />
+        </label>
+      </div>
       {goal && (
         <>
-          <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${progress}%` }} /></div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm font-bold">
+              <span>{formatMoney(goal.current_amount_cents)}</span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill bg-sky-500" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
           <div className="grid grid-cols-[1fr_auto] gap-2">
-            <input className="plain-input" inputMode="decimal" value={deposit} onChange={(event) => setDeposit(event.target.value)} placeholder="Пополнить" />
-            <button className="icon-button" onClick={() => add.mutate()}><Plus size={18} /></button>
+            <label className="field">
+              <span>Пополнить</span>
+              <input inputMode="decimal" value={deposit} onChange={(event) => setDeposit(event.target.value)} placeholder="5000" />
+            </label>
+            <button className="icon-button self-end" disabled={amountToCents(deposit) <= 0 || add.isPending} onClick={() => add.mutate()}><Plus size={18} /></button>
           </div>
         </>
+      )}
+      {message && <p className="error-text">{message}</p>}
+      <button className="primary-button w-full justify-center" onClick={saveGoal} disabled={save.isPending}>
+        <Check size={18} /> {goal ? "Сохранить цель" : "Создать цель"}
+      </button>
+      {goal && (
+        <button className="danger-button" onClick={() => window.confirm("Удалить цель?") && remove.mutate()}>
+          <Trash2 size={18} /> Удалить цель
+        </button>
       )}
     </div>
   );

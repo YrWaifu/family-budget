@@ -30,9 +30,9 @@ const csrfKey ctxKey = "csrf"
 const sessionCookie = "fb_session"
 
 type Server struct {
-	repo   *storage.Repository
-	cfg    config.Config
-	logger *slog.Logger
+	repo    *storage.Repository
+	cfg     config.Config
+	logger  *slog.Logger
 	limiter struct {
 		mu       sync.Mutex
 		attempts map[string][]time.Time
@@ -55,7 +55,9 @@ func NewServer(repo *storage.Repository, cfg config.Config, logger *slog.Logger)
 func (s *Server) Routes() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer, s.securityHeaders, s.cors)
-	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, map[string]string{"status": "ok"}) })
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	api := chi.NewRouter()
 	api.Get("/setup/status", s.setupStatus)
@@ -68,6 +70,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/auth/me", s.me)
 		protected.Get("/categories", s.categories)
 		protected.Get("/transactions", s.transactions)
+		protected.Get("/transactions/comment-suggestions", s.commentSuggestions)
 		protected.Get("/transactions/{id}", s.transaction)
 		protected.Get("/analytics/summary", s.summary)
 		protected.Get("/analytics/categories", s.categoryAnalytics)
@@ -77,6 +80,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/goals", s.goals)
 		protected.Get("/recurring-payments", s.recurringPayments)
 		protected.Get("/export", s.exportData)
+		protected.Get("/backup", s.backupData)
 
 		protected.Group(func(mutating chi.Router) {
 			mutating.Use(s.requireCSRF)
@@ -281,13 +285,27 @@ func (s *Server) transactions(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	list, err := s.repo.Transactions(r.Context(), storage.TransactionFilters{
 		Year: year, Month: month, CategoryID: categoryID, Type: r.URL.Query().Get("type"),
-		Query: r.URL.Query().Get("q"), Limit: limit, Offset: offset,
+		Essential: r.URL.Query().Get("essential"), Query: r.URL.Query().Get("q"), Limit: limit, Offset: offset,
 	})
 	if err != nil {
 		s.fail(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"transactions": list})
+}
+
+func (s *Server) commentSuggestions(w http.ResponseWriter, r *http.Request) {
+	categoryID, _ := strconv.ParseInt(r.URL.Query().Get("category_id"), 10, 64)
+	if categoryID <= 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"suggestions": []string{}})
+		return
+	}
+	list, err := s.repo.CommentSuggestions(r.Context(), categoryID)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"suggestions": list})
 }
 
 func (s *Server) transaction(w http.ResponseWriter, r *http.Request) {
@@ -359,7 +377,7 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) categoryAnalytics(w http.ResponseWriter, r *http.Request) {
 	year, month := monthParams(r, s.cfg.Location)
-	data, err := s.repo.CategoryAnalytics(r.Context(), year, month)
+	data, err := s.repo.CategoryAnalytics(r.Context(), year, month, r.URL.Query().Get("essential"))
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -571,7 +589,7 @@ func (s *Server) payRecurringPayment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) exportData(w http.ResponseWriter, r *http.Request) {
-	list, err := s.repo.Transactions(r.Context(), storage.TransactionFilters{Limit: 10000})
+	list, err := s.repo.ExportTransactions(r.Context())
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -596,6 +614,19 @@ func (s *Server) exportData(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writer.Flush()
+}
+
+func (s *Server) backupData(w http.ResponseWriter, r *http.Request) {
+	data, err := s.repo.Backup(r.Context())
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	filename := fmt.Sprintf("family-budget-backup-%s.json", time.Now().In(s.cfg.Location).Format("20060102-150405"))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 func (s *Server) importData(w http.ResponseWriter, r *http.Request) {

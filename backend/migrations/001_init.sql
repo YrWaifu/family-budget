@@ -22,6 +22,7 @@ CREATE TABLE categories (
   kind TEXT NOT NULL DEFAULT 'expense' CHECK (kind IN ('expense', 'income')),
   sort_order INTEGER NOT NULL DEFAULT 0,
   is_active BOOLEAN NOT NULL DEFAULT true,
+  is_essential BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -95,3 +96,7 @@ INSERT INTO categories (name, icon, color, kind, sort_order) VALUES
   ('Зарплата', 'WalletCards', '#22c55e', 'income', 10),
   ('Другое', 'CircleEllipsis', '#38bdf8', 'income', 20)
 ON CONFLICT DO NOTHING;
+
+UPDATE categories
+SET is_essential=false
+WHERE kind='expense' AND sort_order IN (20, 70, 80, 90, 100);

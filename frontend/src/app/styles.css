@@ -127,7 +127,7 @@ select {
   gap: 4px;
   border-radius: 8px;
   color: rgb(100 116 139);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -160,6 +160,16 @@ select {
   font-size: 11px;
   font-weight: 800;
   line-height: 1.15;
+}
+
+.category-button > span:last-child {
+  display: -webkit-box;
+  min-height: 26px;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .dark .category-button {
@@ -320,6 +330,10 @@ select {
   padding: 4px;
 }
 
+.segmented-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .tabs-list {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   overflow-x: auto;
@@ -381,6 +395,53 @@ select {
 .filter-chip-active {
   background: #111827;
   color: white;
+}
+
+.suggestion-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.suggestion-chip {
+  min-height: 34px;
+  flex: 0 0 auto;
+  max-width: 220px;
+  overflow: hidden;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 999px;
+  background: rgb(248 250 252);
+  padding: 0 12px;
+  color: rgb(51 65 85);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .suggestion-chip {
+  border-color: rgb(51 65 85);
+  background: rgb(2 6 23);
+  color: rgb(226 232 240);
+}
+
+.progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(226 232 240);
+}
+
+.progress-fill {
+  height: 100%;
+  min-width: 0;
+  border-radius: 999px;
+  transition: width 180ms ease;
+}
+
+.dark .progress-track {
+  background: rgb(30 41 59);
 }
 
 .switch-root {

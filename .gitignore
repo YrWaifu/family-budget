@@ -13,3 +13,5 @@ tmp_*/
 gocache/
 gopath/
 gomodcache/
+.gocache/
+.gopath/

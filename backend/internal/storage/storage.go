@@ -45,7 +45,7 @@ type TransactionInput struct {
 	Comment         string     `json:"comment"`
 	TransactionDate *time.Time `json:"transaction_date"`
 	CreatedBy       int64      `json:"-"`
-	IdempotencyKey   string     `json:"-"`
+	IdempotencyKey  string     `json:"-"`
 }
 
 type TransactionFilters struct {
@@ -53,6 +53,7 @@ type TransactionFilters struct {
 	Month      int
 	CategoryID int64
 	Type       string
+	Essential  string
 	Query      string
 	Limit      int
 	Offset     int
@@ -186,7 +187,7 @@ func (r *Repository) Logout(ctx context.Context, token string) error {
 }
 
 func (r *Repository) Categories(ctx context.Context, includeInactive bool, kind string) ([]models.Category, error) {
-	query := `SELECT id, name, icon, color, kind, sort_order, is_active, created_at, updated_at FROM categories`
+	query := `SELECT id, name, icon, color, kind, sort_order, is_active, is_essential, created_at, updated_at FROM categories`
 	clauses := []string{}
 	args := []any{}
 	if !includeInactive {
@@ -208,7 +209,7 @@ func (r *Repository) Categories(ctx context.Context, includeInactive bool, kind 
 	var list []models.Category
 	for rows.Next() {
 		var c models.Category
-		if err := rows.Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.Kind, &c.SortOrder, &c.IsActive, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.Kind, &c.SortOrder, &c.IsActive, &c.IsEssential, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, c)
@@ -217,18 +218,24 @@ func (r *Repository) Categories(ctx context.Context, includeInactive bool, kind 
 }
 
 func (r *Repository) CreateCategory(ctx context.Context, c models.Category) (models.Category, error) {
-	err := r.db.QueryRow(ctx, `INSERT INTO categories(name, icon, color, kind, sort_order, is_active)
-		VALUES($1,$2,$3,$4,$5,true) RETURNING id, name, icon, color, kind, sort_order, is_active, created_at, updated_at`,
-		strings.TrimSpace(c.Name), c.Icon, c.Color, normalizeKind(c.Kind), c.SortOrder).
-		Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.Kind, &c.SortOrder, &c.IsActive, &c.CreatedAt, &c.UpdatedAt)
+	if normalizeKind(c.Kind) == "income" {
+		c.IsEssential = true
+	}
+	err := r.db.QueryRow(ctx, `INSERT INTO categories(name, icon, color, kind, sort_order, is_active, is_essential)
+		VALUES($1,$2,$3,$4,$5,true,$6) RETURNING id, name, icon, color, kind, sort_order, is_active, is_essential, created_at, updated_at`,
+		strings.TrimSpace(c.Name), c.Icon, c.Color, normalizeKind(c.Kind), c.SortOrder, c.IsEssential).
+		Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.Kind, &c.SortOrder, &c.IsActive, &c.IsEssential, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 
 func (r *Repository) UpdateCategory(ctx context.Context, id int64, c models.Category) (models.Category, error) {
-	err := r.db.QueryRow(ctx, `UPDATE categories SET name=$2, icon=$3, color=$4, kind=$5, sort_order=$6, is_active=$7, updated_at=now()
-		WHERE id=$1 RETURNING id, name, icon, color, kind, sort_order, is_active, created_at, updated_at`,
-		id, strings.TrimSpace(c.Name), c.Icon, c.Color, normalizeKind(c.Kind), c.SortOrder, c.IsActive).
-		Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.Kind, &c.SortOrder, &c.IsActive, &c.CreatedAt, &c.UpdatedAt)
+	if normalizeKind(c.Kind) == "income" {
+		c.IsEssential = true
+	}
+	err := r.db.QueryRow(ctx, `UPDATE categories SET name=$2, icon=$3, color=$4, kind=$5, sort_order=$6, is_active=$7, is_essential=$8, updated_at=now()
+		WHERE id=$1 RETURNING id, name, icon, color, kind, sort_order, is_active, is_essential, created_at, updated_at`,
+		id, strings.TrimSpace(c.Name), c.Icon, c.Color, normalizeKind(c.Kind), c.SortOrder, c.IsActive, c.IsEssential).
+		Scan(&c.ID, &c.Name, &c.Icon, &c.Color, &c.Kind, &c.SortOrder, &c.IsActive, &c.IsEssential, &c.CreatedAt, &c.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return c, ErrNotFound
 	}
@@ -299,6 +306,10 @@ func (r *Repository) Transactions(ctx context.Context, f TransactionFilters) ([]
 		args = append(args, f.Type)
 		clauses = append(clauses, fmt.Sprintf("t.type=$%d", len(args)))
 	}
+	if f.Essential == "true" || f.Essential == "false" {
+		args = append(args, f.Essential == "true")
+		clauses = append(clauses, fmt.Sprintf("c.is_essential=$%d", len(args)))
+	}
 	if strings.TrimSpace(f.Query) != "" {
 		args = append(args, "%"+strings.ToLower(strings.TrimSpace(f.Query))+"%")
 		clauses = append(clauses, fmt.Sprintf("lower(t.comment) LIKE $%d", len(args)))
@@ -321,6 +332,45 @@ func (r *Repository) Transactions(ctx context.Context, f TransactionFilters) ([]
 			return nil, err
 		}
 		list = append(list, t)
+	}
+	return list, rows.Err()
+}
+
+func (r *Repository) ExportTransactions(ctx context.Context) ([]models.Transaction, error) {
+	rows, err := r.db.Query(ctx, transactionSelect()+` ORDER BY t.transaction_date DESC, t.id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []models.Transaction
+	for rows.Next() {
+		var t models.Transaction
+		if err := rows.Scan(scanTransaction(&t)...); err != nil {
+			return nil, err
+		}
+		list = append(list, t)
+	}
+	return list, rows.Err()
+}
+
+func (r *Repository) CommentSuggestions(ctx context.Context, categoryID int64) ([]string, error) {
+	rows, err := r.db.Query(ctx, `SELECT comment
+		FROM transactions
+		WHERE category_id=$1 AND comment <> ''
+		GROUP BY comment
+		ORDER BY max(transaction_date) DESC
+		LIMIT 8`, categoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []string
+	for rows.Next() {
+		var comment string
+		if err := rows.Scan(&comment); err != nil {
+			return nil, err
+		}
+		list = append(list, comment)
 	}
 	return list, rows.Err()
 }
@@ -360,6 +410,23 @@ func (r *Repository) Budget(ctx context.Context, year, month int) (models.Monthl
 		return b, ErrNotFound
 	}
 	return b, err
+}
+
+func (r *Repository) Budgets(ctx context.Context) ([]models.MonthlyBudget, error) {
+	rows, err := r.db.Query(ctx, `SELECT id, year, month, amount_cents, created_at, updated_at FROM monthly_budgets ORDER BY year DESC, month DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var list []models.MonthlyBudget
+	for rows.Next() {
+		var b models.MonthlyBudget
+		if err := rows.Scan(&b.ID, &b.Year, &b.Month, &b.AmountCents, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, err
+		}
+		list = append(list, b)
+	}
+	return list, rows.Err()
 }
 
 func (r *Repository) SetBudget(ctx context.Context, year, month int, amount int64) (models.MonthlyBudget, error) {
@@ -404,13 +471,19 @@ func (r *Repository) Summary(ctx context.Context, year, month int) (models.Summa
 	return s, nil
 }
 
-func (r *Repository) CategoryAnalytics(ctx context.Context, year, month int) ([]models.CategoryTotal, error) {
+func (r *Repository) CategoryAnalytics(ctx context.Context, year, month int, essential string) ([]models.CategoryTotal, error) {
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, r.loc)
 	end := start.AddDate(0, 1, 0)
-	rows, err := r.db.Query(ctx, `SELECT c.id, c.name, c.icon, c.color, COALESCE(sum(t.amount_cents),0)
+	args := []any{start, end}
+	clauses := []string{"t.type='expense'", "t.transaction_date >= $1", "t.transaction_date < $2"}
+	if essential == "true" || essential == "false" {
+		args = append(args, essential == "true")
+		clauses = append(clauses, fmt.Sprintf("c.is_essential=$%d", len(args)))
+	}
+	rows, err := r.db.Query(ctx, `SELECT c.id, c.name, c.icon, c.color, c.is_essential, count(t.id), COALESCE(sum(t.amount_cents),0)
 		FROM categories c JOIN transactions t ON t.category_id=c.id
-		WHERE t.type='expense' AND t.transaction_date >= $1 AND t.transaction_date < $2
-		GROUP BY c.id ORDER BY sum(t.amount_cents) DESC`, start, end)
+		WHERE `+strings.Join(clauses, " AND ")+`
+		GROUP BY c.id ORDER BY sum(t.amount_cents) DESC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +491,7 @@ func (r *Repository) CategoryAnalytics(ctx context.Context, year, month int) ([]
 	var list []models.CategoryTotal
 	for rows.Next() {
 		var item models.CategoryTotal
-		if err := rows.Scan(&item.CategoryID, &item.Name, &item.Icon, &item.Color, &item.AmountCents); err != nil {
+		if err := rows.Scan(&item.CategoryID, &item.Name, &item.Icon, &item.Color, &item.IsEssential, &item.TransactionsCount, &item.AmountCents); err != nil {
 			return nil, err
 		}
 		list = append(list, item)
@@ -582,6 +655,33 @@ func (r *Repository) PayRecurringPayment(ctx context.Context, id, userID int64) 
 	})
 }
 
+func (r *Repository) Backup(ctx context.Context) (models.BackupData, error) {
+	data := models.BackupData{
+		ExportedAt:    time.Now().In(r.loc),
+		SchemaVersion: 1,
+	}
+	var err error
+	if data.Users, err = r.Users(ctx); err != nil {
+		return data, err
+	}
+	if data.Categories, err = r.Categories(ctx, true, ""); err != nil {
+		return data, err
+	}
+	if data.Transactions, err = r.ExportTransactions(ctx); err != nil {
+		return data, err
+	}
+	if data.Budgets, err = r.Budgets(ctx); err != nil {
+		return data, err
+	}
+	if data.Goals, err = r.Goals(ctx); err != nil {
+		return data, err
+	}
+	if data.RecurringPayments, err = r.RecurringPayments(ctx); err != nil {
+		return data, err
+	}
+	return data, nil
+}
+
 func (r *Repository) EnsureDemoData(ctx context.Context) error {
 	setup, _, err := r.IsSetup(ctx)
 	if err != nil || setup {
@@ -611,7 +711,7 @@ func (r *Repository) EnsureDemoData(ctx context.Context) error {
 }
 
 func transactionSelect() string {
-	return `SELECT t.id, t.type, t.amount_cents, t.category_id, c.name, c.icon, c.color, t.comment, t.transaction_date, t.created_by, u.name, t.created_at, t.updated_at
+	return `SELECT t.id, t.type, t.amount_cents, t.category_id, c.name, c.icon, c.color, c.is_essential, t.comment, t.transaction_date, t.created_by, u.name, t.created_at, t.updated_at
 		FROM transactions t JOIN categories c ON c.id=t.category_id JOIN users u ON u.id=t.created_by`
 }
 
@@ -623,7 +723,7 @@ func normalizeKind(kind string) string {
 }
 
 func scanTransaction(t *models.Transaction) []any {
-	return []any{&t.ID, &t.Type, &t.AmountCents, &t.CategoryID, &t.CategoryName, &t.CategoryIcon, &t.CategoryColor, &t.Comment, &t.TransactionDate, &t.CreatedBy, &t.AuthorName, &t.CreatedAt, &t.UpdatedAt}
+	return []any{&t.ID, &t.Type, &t.AmountCents, &t.CategoryID, &t.CategoryName, &t.CategoryIcon, &t.CategoryColor, &t.CategoryIsEssential, &t.Comment, &t.TransactionDate, &t.CreatedBy, &t.AuthorName, &t.CreatedAt, &t.UpdatedAt}
 }
 
 func randomToken(size int) (string, error) {

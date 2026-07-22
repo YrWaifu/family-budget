@@ -11,6 +11,7 @@ export type Category = {
   kind: "expense" | "income";
   sort_order: number;
   is_active: boolean;
+  is_essential: boolean;
 };
 
 export type Transaction = {
@@ -21,6 +22,7 @@ export type Transaction = {
   category_name: string;
   category_icon: string;
   category_color: string;
+  category_is_essential: boolean;
   comment: string;
   transaction_date: string;
   created_by: number;
@@ -46,6 +48,8 @@ export type CategoryTotal = {
   name: string;
   icon: string;
   color: string;
+  is_essential: boolean;
+  transactions_count: number;
   amount_cents: number;
 };
 
@@ -159,8 +163,10 @@ export const api = {
     request<Transaction>(`/transactions/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   deleteTransaction: (id: number) => request(`/transactions/${id}`, { method: "DELETE" }),
   summary: (year: number, month: number) => request<Summary>(`/analytics/summary?year=${year}&month=${month}`),
-  categoryAnalytics: (year: number, month: number) => request<{ items: CategoryTotal[] }>(`/analytics/categories?year=${year}&month=${month}`),
+  categoryAnalytics: (year: number, month: number, essential?: string) =>
+    request<{ items: CategoryTotal[] }>(`/analytics/categories?year=${year}&month=${month}${essential ? `&essential=${essential}` : ""}`),
   timeline: (year: number, month: number) => request<{ items: TimelinePoint[] }>(`/analytics/timeline?year=${year}&month=${month}`),
+  commentSuggestions: (categoryID: number) => request<{ suggestions: string[] }>(`/transactions/comment-suggestions?category_id=${categoryID}`),
   comparison: () => request<{ current: Summary; previous: Summary }>("/analytics/comparison"),
   budget: (year: number, month: number) => request<{ amount_cents: number; year: number; month: number }>(`/budgets?year=${year}&month=${month}`),
   setBudget: (year: number, month: number, amount_cents: number) =>
