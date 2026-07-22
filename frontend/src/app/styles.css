@@ -502,44 +502,13 @@ select {
   outline-color: rgb(51 65 85);
 }
 
-.icon-picker {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.icon-choice {
-  display: grid;
-  min-height: 72px;
-  place-items: center;
-  gap: 6px;
-  border: 1px solid rgb(226 232 240);
-  border-radius: 8px;
-  background: white;
-  padding: 8px 4px;
-  color: rgb(51 65 85);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.1;
-  text-align: center;
-}
-
-.icon-choice-active {
-  border-color: rgb(15 23 42);
-  background: rgb(241 245 249);
-  color: rgb(15 23 42);
-}
-
-.dark .icon-choice {
-  border-color: rgb(30 41 59);
-  background: rgb(2 6 23);
-  color: rgb(203 213 225);
-}
-
-.dark .icon-choice-active {
-  border-color: white;
-  background: rgb(30 41 59);
-  color: white;
+.category-editor-summary {
+  display: flex;
+  min-height: 64px;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
 }
 
 .profile-button {

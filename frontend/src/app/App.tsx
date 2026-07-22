@@ -679,6 +679,13 @@ function SettingsPage() {
   const expenseCategories = useQuery({ queryKey: ["categories", "expense", "all"], queryFn: () => api.categories(true, "expense") });
   const recurring = useQuery({ queryKey: ["recurring"], queryFn: api.recurring });
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  const [categorySearch, setCategorySearch] = useState("");
+  const filteredCategories = useMemo(() => {
+    const query = categorySearch.trim().toLowerCase();
+    const items = categories.data?.categories ?? [];
+    if (!query) return items;
+    return items.filter((category) => category.name.toLowerCase().includes(query));
+  }, [categories.data?.categories, categorySearch]);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
@@ -696,7 +703,12 @@ function SettingsPage() {
         </Tabs.List>
         <Tabs.Content value="categories" className="space-y-2">
           <CategoryEditor onSaved={() => queryClient.invalidateQueries()} />
-          {(categories.data?.categories ?? []).map((category) => <CategoryEditor key={category.id} category={category} onSaved={() => queryClient.invalidateQueries()} />)}
+          <label className="search-box">
+            <Search size={18} />
+            <input value={categorySearch} onChange={(event) => setCategorySearch(event.target.value)} placeholder="Найти категорию" />
+          </label>
+          {filteredCategories.map((category) => <CategoryEditor key={category.id} category={category} onSaved={() => queryClient.invalidateQueries()} />)}
+          {!filteredCategories.length && <div className="empty-panel">Категория не найдена</div>}
         </Tabs.Content>
         <Tabs.Content value="regular" className="space-y-2">
           <div className="panel space-y-1 p-4">
@@ -729,15 +741,37 @@ function SettingsPage() {
 
 function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: () => void }) {
   const isNew = !category;
+  const [expanded, setExpanded] = useState(isNew);
   const [draft, setDraft] = useState<Partial<Category>>(category ?? { name: "", icon: "CircleEllipsis", color: "#38bdf8", kind: "expense", sort_order: 130, is_active: true, is_essential: true });
   const [message, setMessage] = useState("");
-  const mutation = useMutation({ mutationFn: () => api.saveCategory(draft), onSuccess: onSaved });
+  const mutation = useMutation({
+    mutationFn: () => api.saveCategory(draft),
+    onSuccess: () => {
+      onSaved();
+      if (!isNew) setExpanded(false);
+    },
+  });
   const remove = useMutation({
     mutationFn: () => api.deleteCategory(category!.id),
     onSuccess: onSaved,
     onError: (error) => setMessage(error.message || "Категория уже используется. Ее можно скрыть."),
   });
   const colors = ["#22c55e", "#f97316", "#3b82f6", "#14b8a6", "#ef4444", "#8b5cf6", "#06b6d4", "#f43f5e", "#eab308", "#64748b"];
+  const meta = `${draft.kind === "income" ? "Доход" : "Расход"} · ${draft.kind === "income" || draft.is_essential ? "обязательная" : "необязательная"} · ${draft.is_active === false ? "скрыта" : "активна"}`;
+  if (!expanded) {
+    return (
+      <button className="panel category-editor-summary" type="button" onClick={() => setExpanded(true)}>
+        <span className="category-badge small" style={{ backgroundColor: draft.color }}>
+          <CategoryIcon name={draft.icon ?? "CircleEllipsis"} className="h-5 w-5 text-white" />
+        </span>
+        <span className="min-w-0 flex-1 text-left">
+          <span className="block truncate font-bold">{draft.name}</span>
+          <span className="block truncate text-xs text-slate-500">{meta}</span>
+        </span>
+        <ChevronDown size={18} className="text-slate-400" />
+      </button>
+    );
+  }
   return (
     <div className="panel space-y-4 p-4">
       <div className="flex items-center gap-3">
@@ -746,10 +780,13 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="font-bold">{isNew ? "Новая категория" : draft.name}</h3>
-          <p className="text-xs text-slate-500">
-            {draft.kind === "income" ? "Доход" : "Расход"} · {draft.kind === "income" || draft.is_essential ? "обязательная" : "необязательная"} · {draft.is_active === false ? "скрыта" : "активна"}
-          </p>
+          <p className="text-xs text-slate-500">{meta}</p>
         </div>
+        {!isNew && (
+          <button className="icon-button" type="button" onClick={() => setExpanded(false)} title="Свернуть">
+            <ChevronDown size={18} />
+          </button>
+        )}
       </div>
       <label className="field">
         <span>Название</span>
