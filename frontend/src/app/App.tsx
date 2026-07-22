@@ -42,7 +42,7 @@ import { z } from "zod";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { api, type Category, type CategoryTotal, type Goal, type RecurringPayment, type Summary, type Transaction, type TransactionPayload, type User } from "../shared/api/client";
 import { amountToCents, formatMoney, isoDate, monthLabel } from "../shared/lib/format";
-import { CategoryIcon, iconNames } from "../shared/lib/icons";
+import { CategoryIcon, iconOptions } from "../shared/lib/icons";
 
 type AuthState = "loading" | "setup" | "login" | "ready";
 
@@ -155,15 +155,8 @@ function Dashboard() {
     <div className="space-y-5 pb-8">
       <MonthSwitcher date={monthDate} onChange={setMonthDate} />
       <BudgetHero summary={summary.data} loading={summary.isLoading} />
-      <section className="grid grid-cols-[1.05fr_0.95fr] gap-3">
+      <section>
         <ChartCard items={analytics.data?.items ?? []} />
-        <div className="panel flex flex-col justify-between p-4">
-          <span className="text-sm text-slate-500">Прогноз расходов</span>
-          <strong className="text-2xl">{formatMoney(summary.data?.forecast_expense_cents ?? 0)}</strong>
-          <span className="text-xs text-slate-500">
-            {deltaText(summary.data)}
-          </span>
-        </div>
       </section>
       <section className="space-y-3">
         <SectionTitle title="Быстрый расход" action={<TransactionDialog categories={allCategories.data?.categories ?? activeCategories} onSaved={refresh} />} />
@@ -188,7 +181,6 @@ function Dashboard() {
 }
 
 function BudgetHero({ summary, loading }: { summary?: Summary; loading: boolean }) {
-  const used = Math.min(summary?.budget_used_percent ?? 0, 100);
   return (
     <section className="hero-panel">
       <div className="flex items-start justify-between gap-3">
@@ -201,13 +193,9 @@ function BudgetHero({ summary, loading }: { summary?: Summary; loading: boolean 
           <b>{formatMoney(summary?.balance_cents ?? 0)}</b>
         </div>
       </div>
-      <div className="mt-8 grid grid-cols-3 gap-3">
+      <div className="mt-8 grid grid-cols-2 gap-3">
         <Metric label="Доходы" value={formatMoney(summary?.income_cents ?? 0)} />
-        <Metric label="Бюджет" value={formatMoney(summary?.budget_cents ?? 0)} />
-        <Metric label="Остаток" value={formatMoney(summary?.budget_left_cents ?? 0)} />
-      </div>
-      <div className="mt-5 h-2 rounded-full bg-white/15">
-        <div className="h-full rounded-full bg-emerald-300" style={{ width: `${used}%` }} />
+        <Metric label="Разница" value={formatMoney(summary?.balance_cents ?? 0)} />
       </div>
     </section>
   );
@@ -225,7 +213,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 function ChartCard({ items }: { items: CategoryTotal[] }) {
   const data = items.length ? items : [{ name: "Нет расходов", amount_cents: 1, color: "#cbd5e1", category_id: 0, icon: "CircleEllipsis" }];
   return (
-    <div className="panel h-48 p-3">
+    <div className="panel h-56 p-3">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie data={data} dataKey="amount_cents" innerRadius="58%" outerRadius="86%" paddingAngle={3}>
@@ -514,15 +502,11 @@ function AnalyticsPage() {
 }
 
 function SettingsPage() {
-  const now = new Date();
   const queryClient = useQueryClient();
   const categories = useQuery({ queryKey: ["categories-all"], queryFn: () => api.categories(true) });
   const expenseCategories = useQuery({ queryKey: ["categories", "expense", "all"], queryFn: () => api.categories(true, "expense") });
   const goals = useQuery({ queryKey: ["goals"], queryFn: api.goals });
   const recurring = useQuery({ queryKey: ["recurring"], queryFn: api.recurring });
-  const budget = useQuery({ queryKey: ["budget", now.getFullYear(), now.getMonth() + 1], queryFn: () => api.budget(now.getFullYear(), now.getMonth() + 1) });
-  const saveBudget = useMutation({ mutationFn: (amount: string) => api.setBudget(now.getFullYear(), now.getMonth() + 1, amountToCents(amount)), onSuccess: () => queryClient.invalidateQueries() });
-  const [budgetValue, setBudgetValue] = useState("");
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -533,29 +517,29 @@ function SettingsPage() {
         <span className="flex items-center gap-2 font-semibold">{dark ? <Moon size={19} /> : <Sun size={19} />} Тема</span>
         <Switch.Root className="switch-root" checked={dark} onCheckedChange={setDark}><Switch.Thumb className="switch-thumb" /></Switch.Root>
       </div>
-      <Tabs.Root defaultValue="budget" className="space-y-4">
+      <Tabs.Root defaultValue="categories" className="space-y-4">
         <Tabs.List className="tabs-list">
-          <Tabs.Trigger value="budget">Бюджет</Tabs.Trigger>
           <Tabs.Trigger value="categories">Категории</Tabs.Trigger>
           <Tabs.Trigger value="goals">Цели</Tabs.Trigger>
-          <Tabs.Trigger value="regular">Платежи</Tabs.Trigger>
+          <Tabs.Trigger value="regular">Регулярные</Tabs.Trigger>
         </Tabs.List>
-        <Tabs.Content value="budget" className="panel space-y-3 p-4">
-          <p className="text-sm text-slate-500">Текущий бюджет: {formatMoney(budget.data?.amount_cents ?? 0)}</p>
-          <label className="field"><span>Новая сумма</span><input inputMode="decimal" value={budgetValue} onChange={(event) => setBudgetValue(event.target.value)} /></label>
-          <button className="primary-button w-full justify-center" onClick={() => saveBudget.mutate(budgetValue)}>Сохранить</button>
-        </Tabs.Content>
         <Tabs.Content value="categories" className="space-y-2">
-          {(categories.data?.categories ?? []).map((category) => <CategoryEditor key={category.id} category={category} onSaved={() => queryClient.invalidateQueries()} />)}
           <CategoryEditor onSaved={() => queryClient.invalidateQueries()} />
+          {(categories.data?.categories ?? []).map((category) => <CategoryEditor key={category.id} category={category} onSaved={() => queryClient.invalidateQueries()} />)}
         </Tabs.Content>
         <Tabs.Content value="goals" className="space-y-2">
           {(goals.data?.goals ?? []).map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)}
           <GoalRow onSaved={() => queryClient.invalidateQueries()} />
         </Tabs.Content>
         <Tabs.Content value="regular" className="space-y-2">
-          {(recurring.data?.recurring_payments ?? []).map((payment) => <RecurringRow key={payment.id} payment={payment} categories={expenseCategories.data?.categories ?? []} onSaved={() => queryClient.invalidateQueries()} />)}
+          <div className="panel space-y-1 p-4">
+            <h2 className="text-lg font-bold">Регулярные расходы</h2>
+            <p className="text-sm text-slate-500">
+              Это шаблоны для повторяющихся трат: аренда, связь, подписки. В день списания нажми «Записать расход», и приложение добавит обычную операцию в историю.
+            </p>
+          </div>
           <RecurringRow categories={expenseCategories.data?.categories ?? []} onSaved={() => queryClient.invalidateQueries()} />
+          {(recurring.data?.recurring_payments ?? []).map((payment) => <RecurringRow key={payment.id} payment={payment} categories={expenseCategories.data?.categories ?? []} onSaved={() => queryClient.invalidateQueries()} />)}
         </Tabs.Content>
       </Tabs.Root>
     </div>
@@ -563,28 +547,96 @@ function SettingsPage() {
 }
 
 function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: () => void }) {
+  const isNew = !category;
   const [draft, setDraft] = useState<Partial<Category>>(category ?? { name: "", icon: "CircleEllipsis", color: "#38bdf8", kind: "expense", sort_order: 130, is_active: true });
+  const [message, setMessage] = useState("");
   const mutation = useMutation({ mutationFn: () => api.saveCategory(draft), onSuccess: onSaved });
+  const remove = useMutation({
+    mutationFn: () => api.deleteCategory(category!.id),
+    onSuccess: onSaved,
+    onError: (error) => setMessage(error.message || "Категория уже используется. Ее можно скрыть."),
+  });
+  const colors = ["#22c55e", "#f97316", "#3b82f6", "#14b8a6", "#ef4444", "#8b5cf6", "#06b6d4", "#f43f5e", "#eab308", "#64748b"];
   return (
-    <div className="panel grid grid-cols-[auto_1fr_auto] items-center gap-3 p-3">
-      <span className="category-badge small" style={{ backgroundColor: draft.color }}><CategoryIcon name={draft.icon ?? "CircleEllipsis"} className="h-5 w-5 text-white" /></span>
-      <div className="grid gap-2">
-        <input className="plain-input" value={draft.name ?? ""} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Категория" />
-        <div className="flex gap-2">
-          <input className="color-input" type="color" value={draft.color ?? "#38bdf8"} onChange={(event) => setDraft({ ...draft, color: event.target.value })} />
-          <select className="plain-input" value={draft.icon} onChange={(event) => setDraft({ ...draft, icon: event.target.value })}>
-            {iconNames.map((name) => <option key={name}>{name}</option>)}
-          </select>
-          <select className="plain-input" value={draft.kind ?? "expense"} onChange={(event) => setDraft({ ...draft, kind: event.target.value as "expense" | "income" })}>
-            <option value="expense">Расход</option>
-            <option value="income">Доход</option>
-          </select>
+    <div className="panel space-y-4 p-4">
+      <div className="flex items-center gap-3">
+        <span className="category-badge small" style={{ backgroundColor: draft.color }}>
+          <CategoryIcon name={draft.icon ?? "CircleEllipsis"} className="h-5 w-5 text-white" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-bold">{isNew ? "Новая категория" : draft.name}</h3>
+          <p className="text-xs text-slate-500">{draft.kind === "income" ? "Доход" : "Расход"} · {draft.is_active === false ? "скрыта" : "активна"}</p>
         </div>
       </div>
-      <div className="flex flex-col items-end gap-2">
-        {category && <Switch.Root className="switch-root" checked={draft.is_active ?? true} onCheckedChange={(checked) => setDraft({ ...draft, is_active: checked })}><Switch.Thumb className="switch-thumb" /></Switch.Root>}
-        <button className="icon-button" title="Сохранить" onClick={() => mutation.mutate()}><Check size={18} /></button>
+      <label className="field">
+        <span>Название</span>
+        <input value={draft.name ?? ""} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Например, Такси" />
+      </label>
+      <div className="segmented">
+        <button type="button" className={draft.kind !== "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "expense" })}>Расход</button>
+        <button type="button" className={draft.kind === "income" ? "selected" : ""} onClick={() => setDraft({ ...draft, kind: "income" })}>Доход</button>
       </div>
+      <div className="space-y-2">
+        <p className="text-sm font-bold text-slate-500">Цвет</p>
+        <div className="color-grid">
+          {colors.map((color) => (
+            <button
+              key={color}
+              className={`color-swatch ${draft.color === color ? "color-swatch-active" : ""}`}
+              style={{ backgroundColor: color }}
+              onClick={() => setDraft({ ...draft, color })}
+              type="button"
+              title={color}
+            />
+          ))}
+          <input className="color-input" type="color" value={draft.color ?? "#38bdf8"} onChange={(event) => setDraft({ ...draft, color: event.target.value })} />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-sm font-bold text-slate-500">Иконка</p>
+        <div className="icon-picker">
+          {iconOptions.map((option) => (
+            <button
+              key={option.name}
+              type="button"
+              className={`icon-choice ${draft.icon === option.name ? "icon-choice-active" : ""}`}
+              onClick={() => setDraft({ ...draft, icon: option.name })}
+            >
+              <span className="category-badge tiny" style={{ backgroundColor: draft.color }}>
+                <CategoryIcon name={option.name} className="h-4 w-4 text-white" />
+              </span>
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {message && <p className="error-text">{message}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <button className="primary-button justify-center" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Check size={18} /> {isNew ? "Создать" : "Сохранить"}
+        </button>
+        {category ? (
+          <button
+            className="secondary-button justify-center"
+            onClick={() => {
+              const nextDraft = { ...draft, is_active: !(draft.is_active ?? true) };
+              setDraft(nextDraft);
+              api.saveCategory(nextDraft).then(onSaved).catch((error) => setMessage(error.message));
+            }}
+          >
+            {(draft.is_active ?? true) ? "Скрыть" : "Показать"}
+          </button>
+        ) : (
+          <button className="secondary-button justify-center" onClick={() => setDraft({ name: "", icon: "CircleEllipsis", color: "#38bdf8", kind: "expense", sort_order: 130, is_active: true })}>
+            Очистить
+          </button>
+        )}
+      </div>
+      {category && (
+        <button className="danger-button" onClick={() => window.confirm("Удалить категорию? Если она уже использовалась, лучше скрыть ее.") && remove.mutate()}>
+          <Trash2 size={18} /> Удалить категорию
+        </button>
+      )}
     </div>
   );
 }
@@ -617,24 +669,62 @@ function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
 }
 
 function RecurringRow({ payment, categories, onSaved }: { payment?: RecurringPayment; categories: Category[]; onSaved: () => void }) {
+  const isNew = !payment;
   const [name, setName] = useState(payment?.name ?? "");
   const [amount, setAmount] = useState(payment ? String(payment.amount_cents / 100) : "");
   const [categoryID, setCategoryID] = useState(payment?.category_id ?? categories[0]?.id ?? 0);
   const [day, setDay] = useState(payment?.day_of_month ?? 1);
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    if (!categoryID && categories[0]) setCategoryID(categories[0].id);
+  }, [categories, categoryID]);
   const save = useMutation({ mutationFn: () => api.saveRecurring({ ...payment, name, amount_cents: amountToCents(amount), category_id: categoryID, day_of_month: day, is_active: payment?.is_active ?? true }), onSuccess: onSaved });
   const pay = useMutation({ mutationFn: () => api.payRecurring(payment!.id), onSuccess: onSaved });
+  const remove = useMutation({ mutationFn: () => api.deleteRecurring(payment!.id), onSuccess: onSaved });
   return (
     <div className="panel space-y-3 p-3">
-      <div className="grid grid-cols-[1fr_auto] gap-2">
-        <input className="plain-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="Платеж" />
-        <button className="icon-button" onClick={() => save.mutate()}><Check size={18} /></button>
-      </div>
+      <h3 className="font-bold">{isNew ? "Новый шаблон" : name}</h3>
+      <label className="field">
+        <span>Название</span>
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, интернет" />
+      </label>
       <div className="grid grid-cols-2 gap-2">
-        <input className="plain-input" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Сумма" />
-        <input className="plain-input" type="number" min={1} max={31} value={day} onChange={(event) => setDay(Number(event.target.value))} />
+        <label className="field">
+          <span>Сумма</span>
+          <input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="990" />
+        </label>
+        <label className="field">
+          <span>День месяца</span>
+          <input type="number" min={1} max={31} value={day} onChange={(event) => setDay(Number(event.target.value))} />
+        </label>
       </div>
       <CategorySelect categories={categories} value={categoryID} onChange={setCategoryID} />
-      {payment && <button className="secondary-button w-full justify-center" onClick={() => pay.mutate()}>Оплатить сейчас</button>}
+      {message && <p className="error-text">{message}</p>}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          className="primary-button justify-center"
+          onClick={() => {
+            if (!name.trim() || amountToCents(amount) <= 0 || !categoryID) {
+              setMessage("Заполни название, сумму и категорию");
+              return;
+            }
+            setMessage("");
+            save.mutate();
+          }}
+        >
+          <Check size={18} /> {isNew ? "Создать" : "Сохранить"}
+        </button>
+        {payment && (
+          <button className="secondary-button justify-center" onClick={() => pay.mutate()}>
+            Записать расход
+          </button>
+        )}
+      </div>
+      {payment && (
+        <button className="danger-button" onClick={() => window.confirm("Удалить этот шаблон? Уже созданные расходы останутся в истории.") && remove.mutate()}>
+          <Trash2 size={18} /> Удалить шаблон
+        </button>
+      )}
     </div>
   );
 }
@@ -729,10 +819,4 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
 
 function Splash() {
   return <div className="grid min-h-screen place-items-center bg-slate-950 text-white"><div className="app-mark"><span /><span /><span /></div></div>;
-}
-
-function deltaText(summary?: Summary) {
-  if (!summary || summary.previous_expense_cents === 0) return "Сравнение появится после второго месяца";
-  const sign = summary.expense_delta_percent > 0 ? "выше" : "ниже";
-  return `${Math.abs(summary.expense_delta_percent).toFixed(0)}% ${sign} прошлого месяца`;
 }
