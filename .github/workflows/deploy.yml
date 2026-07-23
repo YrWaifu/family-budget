@@ -33,7 +33,8 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$BEGET_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$PORT" "$BEGET_HOST" >> ~/.ssh/known_hosts
+          touch ~/.ssh/known_hosts
+          timeout 20 ssh-keyscan -p "$PORT" "$BEGET_HOST" >> ~/.ssh/known_hosts || true
 
       - name: Upload release archive
         env:
@@ -46,7 +47,7 @@ jobs:
           test -n "$BEGET_USER"
           PORT="${BEGET_PORT:-22}"
           ARCHIVE="/tmp/family-budget-${GITHUB_SHA}.tar.gz"
-          SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes"
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes"
 
           tar \
             --exclude='.git' \
@@ -74,7 +75,7 @@ jobs:
           PORT="${BEGET_PORT:-22}"
           APP_DIR="${BEGET_APP_DIR:-/opt/family-budget}"
           ARCHIVE="/tmp/family-budget-${GITHUB_SHA}.tar.gz"
-          SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes"
+          SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=~/.ssh/known_hosts -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes"
 
           ssh $SSH_OPTS -i ~/.ssh/deploy_key -p "$PORT" "$BEGET_USER@$BEGET_HOST" \
             "APP_DIR='$APP_DIR' ARCHIVE='$ARCHIVE' bash -se" <<'EOF'
