@@ -512,7 +512,7 @@ func (r *Repository) Timeline(ctx context.Context, year, month int, essential st
 	start := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, r.loc)
 	end := start.AddDate(0, 1, 0)
 	expenseFilter := `t.type='expense'`
-	args := []any{start, end}
+	args := []any{start.Format("2006-01-02"), end.Format("2006-01-02"), r.loc.String()}
 	if essential == "true" || essential == "false" {
 		args = append(args, essential == "true")
 		expenseFilter += fmt.Sprintf(" AND t.is_essential=$%d", len(args))
@@ -520,8 +520,8 @@ func (r *Repository) Timeline(ctx context.Context, year, month int, essential st
 	rows, err := r.db.Query(ctx, `SELECT to_char(day, 'YYYY-MM-DD'),
 		COALESCE(sum(t.amount_cents) FILTER (WHERE t.type='income'), 0),
 		COALESCE(sum(t.amount_cents) FILTER (WHERE `+expenseFilter+`), 0)
-		FROM generate_series($1::timestamptz, ($2::timestamptz - interval '1 day'), interval '1 day') day
-		LEFT JOIN transactions t ON t.transaction_date >= day AND t.transaction_date < day + interval '1 day'
+		FROM generate_series($1::date, ($2::date - interval '1 day'), interval '1 day') day
+		LEFT JOIN transactions t ON (t.transaction_date AT TIME ZONE $3)::date = day::date
 		GROUP BY day ORDER BY day`, args...)
 	if err != nil {
 		return nil, err
@@ -542,7 +542,7 @@ func (r *Repository) MonthlyTimeline(ctx context.Context, year int, essential st
 	start := time.Date(year, 1, 1, 0, 0, 0, 0, r.loc)
 	end := start.AddDate(1, 0, 0)
 	expenseFilter := `t.type='expense'`
-	args := []any{start, end}
+	args := []any{start.Format("2006-01-02"), end.Format("2006-01-02"), r.loc.String()}
 	if essential == "true" || essential == "false" {
 		args = append(args, essential == "true")
 		expenseFilter += fmt.Sprintf(" AND t.is_essential=$%d", len(args))
@@ -550,8 +550,8 @@ func (r *Repository) MonthlyTimeline(ctx context.Context, year int, essential st
 	rows, err := r.db.Query(ctx, `SELECT to_char(month, 'YYYY-MM'),
 		COALESCE(sum(t.amount_cents) FILTER (WHERE t.type='income'), 0),
 		COALESCE(sum(t.amount_cents) FILTER (WHERE `+expenseFilter+`), 0)
-		FROM generate_series($1::timestamptz, ($2::timestamptz - interval '1 month'), interval '1 month') month
-		LEFT JOIN transactions t ON t.transaction_date >= month AND t.transaction_date < month + interval '1 month'
+		FROM generate_series($1::date, ($2::date - interval '1 month'), interval '1 month') month
+		LEFT JOIN transactions t ON date_trunc('month', t.transaction_date AT TIME ZONE $3)::date = month::date
 		GROUP BY month ORDER BY month`, args...)
 	if err != nil {
 		return nil, err

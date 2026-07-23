@@ -42,7 +42,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { api, type Category, type CategoryTotal, type Goal, type RecurringPayment, type Summary, type Transaction, type TransactionPayload, type User } from "../shared/api/client";
-import { amountToCents, formatMoney, isoDate, monthLabel } from "../shared/lib/format";
+import { amountToCents, dateInputToISO, formatMoney, formatShortDate, isoDate, monthLabel } from "../shared/lib/format";
 import { CategoryIcon, iconOptions } from "../shared/lib/icons";
 
 type AuthState = "loading" | "setup" | "login" | "ready";
@@ -294,7 +294,7 @@ function TransactionDialog({ categories, transaction, onSaved, trigger }: { cate
       category_id: values.category_id,
       is_essential: values.type === "expense" ? values.is_essential : true,
       comment: values.comment,
-      transaction_date: new Date(values.transaction_date).toISOString(),
+      transaction_date: dateInputToISO(values.transaction_date),
     });
   });
 
@@ -566,7 +566,7 @@ function TransactionList({ items, categories, onChanged, compact }: { items: Tra
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold">{item.category_name}</p>
             <p className="truncate text-xs text-slate-500">
-              {[item.comment, item.author_name, new Date(item.transaction_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "short" })].filter(Boolean).join(" · ")}
+              {[item.comment, item.author_name, formatShortDate(item.transaction_date)].filter(Boolean).join(" · ")}
             </p>
           </div>
           <strong className={item.type === "income" ? "text-emerald-600" : "text-slate-950 dark:text-white"}>
