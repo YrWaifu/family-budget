@@ -233,7 +233,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function ChartCard({ items }: { items: CategoryTotal[] }) {
-  const data = items.length ? items : [{ name: "Нет расходов", amount_cents: 1, color: "#cbd5e1", category_id: 0, icon: "CircleEllipsis", is_essential: true, transactions_count: 0 }];
+  const mergedItems = mergeCategoryTotals(items);
+  const data = mergedItems.length ? mergedItems : [{ name: "Нет расходов", amount_cents: 1, color: "#cbd5e1", category_id: 0, icon: "CircleEllipsis", is_essential: true, transactions_count: 0 }];
   return (
     <div className="panel h-56 p-3">
       <ResponsiveContainer width="100%" height="100%">
@@ -246,6 +247,21 @@ function ChartCard({ items }: { items: CategoryTotal[] }) {
       </ResponsiveContainer>
     </div>
   );
+}
+
+function mergeCategoryTotals(items: CategoryTotal[]): CategoryTotal[] {
+  const byCategory = new Map<number, CategoryTotal>();
+  for (const item of items) {
+    const current = byCategory.get(item.category_id);
+    if (!current) {
+      byCategory.set(item.category_id, { ...item });
+      continue;
+    }
+    current.amount_cents += item.amount_cents;
+    current.transactions_count += item.transactions_count;
+    current.is_essential = current.is_essential && item.is_essential;
+  }
+  return Array.from(byCategory.values()).sort((a, b) => b.amount_cents - a.amount_cents);
 }
 
 function MonthSwitcher({ date, onChange }: { date: Date; onChange: (date: Date) => void }) {
@@ -622,6 +638,7 @@ function AnalyticsPage() {
   const essentialTotal = allItems.filter((item) => item.is_essential).reduce((sum, item) => sum + item.amount_cents, 0);
   const optionalTotal = totalExpenses - essentialTotal;
   const filteredItems = categories.data?.items ?? [];
+  const categoryItems = essentialFilter ? filteredItems : mergeCategoryTotals(filteredItems);
   return (
     <div className="space-y-4 pb-8">
       <MonthSwitcher date={date} onChange={setDate} />
@@ -663,16 +680,16 @@ function AnalyticsPage() {
         <>
           <div className="panel h-72 p-3">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={filteredItems}>
+              <BarChart data={categoryItems}>
                 <XAxis dataKey="name" hide />
                 <Tooltip formatter={(value) => formatMoney(Number(value))} />
                 <Bar dataKey="amount_cents" radius={[6, 6, 0, 0]}>
-                  {filteredItems.map((item) => <Cell key={`${item.category_id}-${item.is_essential}`} fill={item.color} />)}
+                  {categoryItems.map((item) => <Cell key={`${item.category_id}-${item.is_essential}`} fill={item.color} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <CategoryBreakdown items={filteredItems} total={filteredItems.reduce((sum, item) => sum + item.amount_cents, 0)} />
+          <CategoryBreakdown items={categoryItems} total={categoryItems.reduce((sum, item) => sum + item.amount_cents, 0)} />
         </>
       )}
     </div>
