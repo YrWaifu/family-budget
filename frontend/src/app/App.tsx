@@ -185,21 +185,39 @@ function Dashboard() {
 }
 
 function BudgetHero({ summary, loading }: { summary?: Summary; loading: boolean }) {
+  const income = summary?.income_cents ?? 0;
+  const expense = summary?.expense_cents ?? 0;
+  const balance = summary?.balance_cents ?? 0;
+  const spentPercent = income > 0 ? Math.min(100, Math.round((expense / income) * 100)) : 0;
+  const savedPercent = income > 0 ? Math.max(0, 100 - spentPercent) : 0;
+  const verdict = income <= 0
+    ? "Добавь доход, и здесь появится понятная сводка месяца."
+    : balance >= 0
+      ? `Осталось ${formatMoney(balance)} · ${savedPercent}% дохода не потрачено`
+      : `Минус ${formatMoney(Math.abs(balance))} · расходы выше доходов`;
   return (
     <section className="hero-panel">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm text-white/70">Расходы месяца</p>
-          <strong className="mt-1 block text-4xl font-black tracking-normal">{loading ? "..." : formatMoney(summary?.expense_cents ?? 0)}</strong>
+          <p className="text-sm text-white/70">Итог месяца</p>
+          <strong className="mt-1 block text-4xl font-black tracking-normal">{loading ? "..." : formatMoney(balance)}</strong>
         </div>
-        <div className="rounded-full bg-white/12 px-3 py-2 text-right">
-          <p className="text-xs text-white/65">Баланс</p>
-          <b>{formatMoney(summary?.balance_cents ?? 0)}</b>
+        <div className={`summary-pill ${balance < 0 ? "summary-pill-danger" : ""}`}>
+          {balance >= 0 ? "в плюсе" : "перерасход"}
         </div>
       </div>
-      <div className="mt-8 grid grid-cols-2 gap-3">
-        <Metric label="Доходы" value={formatMoney(summary?.income_cents ?? 0)} />
-        <Metric label="Разница" value={formatMoney(summary?.balance_cents ?? 0)} />
+      <p className="mt-3 text-sm font-semibold text-white/72">{verdict}</p>
+      <div className="summary-flow mt-5">
+        <Metric label="Пришло" value={formatMoney(income)} />
+        <Metric label="Потрачено" value={formatMoney(expense)} />
+      </div>
+      <div className="summary-bar mt-4" aria-label="Доля потраченного дохода">
+        <span className="summary-bar-spent" style={{ width: `${spentPercent}%` }} />
+        <span className="summary-bar-left" />
+      </div>
+      <div className="mt-2 flex justify-between text-xs font-bold text-white/60">
+        <span>{spentPercent}% потрачено</span>
+        <span>{savedPercent}% осталось</span>
       </div>
     </section>
   );

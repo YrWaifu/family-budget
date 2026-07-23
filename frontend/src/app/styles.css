@@ -41,6 +41,51 @@ select {
   box-shadow: 0 22px 70px rgb(16 24 40 / 0.2);
 }
 
+.summary-pill {
+  border-radius: 999px;
+  background: rgb(34 197 94 / 0.18);
+  color: rgb(187 247 208);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.summary-pill-danger {
+  background: rgb(248 113 113 / 0.18);
+  color: rgb(254 202 202);
+}
+
+.summary-flow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.summary-flow > div {
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.08);
+  padding: 10px;
+}
+
+.summary-bar {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.12);
+}
+
+.summary-bar-spent {
+  min-width: 0;
+  background: #fb923c;
+}
+
+.summary-bar-left {
+  flex: 1;
+  background: #22c55e;
+}
+
 .icon-button {
   display: inline-flex;
   width: 42px;
