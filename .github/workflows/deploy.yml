@@ -46,6 +46,7 @@ jobs:
           test -n "$BEGET_USER"
           PORT="${BEGET_PORT:-22}"
           ARCHIVE="/tmp/family-budget-${GITHUB_SHA}.tar.gz"
+          SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes"
 
           tar \
             --exclude='.git' \
@@ -60,7 +61,7 @@ jobs:
             --exclude='frontend/dist' \
             -czf "$ARCHIVE" .
 
-          scp -i ~/.ssh/deploy_key -P "$PORT" "$ARCHIVE" "$BEGET_USER@$BEGET_HOST:$ARCHIVE"
+          scp $SSH_OPTS -i ~/.ssh/deploy_key -P "$PORT" "$ARCHIVE" "$BEGET_USER@$BEGET_HOST:$ARCHIVE"
 
       - name: Deploy on server
         env:
@@ -73,8 +74,9 @@ jobs:
           PORT="${BEGET_PORT:-22}"
           APP_DIR="${BEGET_APP_DIR:-/opt/family-budget}"
           ARCHIVE="/tmp/family-budget-${GITHUB_SHA}.tar.gz"
+          SSH_OPTS="-o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o TCPKeepAlive=yes"
 
-          ssh -i ~/.ssh/deploy_key -p "$PORT" "$BEGET_USER@$BEGET_HOST" \
+          ssh $SSH_OPTS -i ~/.ssh/deploy_key -p "$PORT" "$BEGET_USER@$BEGET_HOST" \
             "APP_DIR='$APP_DIR' ARCHIVE='$ARCHIVE' bash -se" <<'EOF'
           set -euo pipefail
 
@@ -98,7 +100,7 @@ jobs:
           fi
 
           docker compose pull db
-          docker compose up --build -d --remove-orphans
+          docker compose --progress plain up --build -d --remove-orphans
           docker image prune -f
           docker compose ps
           EOF
