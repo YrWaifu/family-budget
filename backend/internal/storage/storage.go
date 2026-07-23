@@ -324,7 +324,7 @@ func (r *Repository) Transactions(ctx context.Context, f TransactionFilters) ([]
 		limit = 50
 	}
 	args = append(args, limit, max(f.Offset, 0))
-	query := transactionSelect() + ` WHERE ` + strings.Join(clauses, " AND ") + fmt.Sprintf(` ORDER BY t.transaction_date DESC, t.id DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+	query := transactionSelect() + ` WHERE ` + strings.Join(clauses, " AND ") + fmt.Sprintf(` ORDER BY t.created_at DESC, t.id DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err

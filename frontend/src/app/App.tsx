@@ -566,7 +566,7 @@ function TransactionList({ items, categories, onChanged, compact }: { items: Tra
           <div className="min-w-0 flex-1">
             <p className="truncate font-semibold">{item.category_name}</p>
             <p className="truncate text-xs text-slate-500">
-              {item.comment || item.author_name} · {new Date(item.transaction_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "short" })}
+              {[item.comment, item.author_name, new Date(item.transaction_date).toLocaleDateString("ru-RU", { day: "2-digit", month: "short" })].filter(Boolean).join(" · ")}
             </p>
           </div>
           <strong className={item.type === "income" ? "text-emerald-600" : "text-slate-950 dark:text-white"}>
