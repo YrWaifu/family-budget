@@ -75,6 +75,7 @@ func (s *Server) Routes() http.Handler {
 		protected.Get("/analytics/summary", s.summary)
 		protected.Get("/analytics/categories", s.categoryAnalytics)
 		protected.Get("/analytics/timeline", s.timeline)
+		protected.Get("/analytics/monthly", s.monthlyTimeline)
 		protected.Get("/analytics/comparison", s.comparison)
 		protected.Get("/budgets", s.budget)
 		protected.Get("/goals", s.goals)
@@ -387,7 +388,21 @@ func (s *Server) categoryAnalytics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) timeline(w http.ResponseWriter, r *http.Request) {
 	year, month := monthParams(r, s.cfg.Location)
-	data, err := s.repo.Timeline(r.Context(), year, month)
+	data, err := s.repo.Timeline(r.Context(), year, month, r.URL.Query().Get("essential"))
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": data})
+}
+
+func (s *Server) monthlyTimeline(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().In(s.cfg.Location)
+	year, _ := strconv.Atoi(r.URL.Query().Get("year"))
+	if year == 0 {
+		year = now.Year()
+	}
+	data, err := s.repo.MonthlyTimeline(r.Context(), year, r.URL.Query().Get("essential"))
 	if err != nil {
 		s.fail(w, err)
 		return

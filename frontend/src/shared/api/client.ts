@@ -167,7 +167,10 @@ export const api = {
   summary: (year: number, month: number) => request<Summary>(`/analytics/summary?year=${year}&month=${month}`),
   categoryAnalytics: (year: number, month: number, essential?: string) =>
     request<{ items: CategoryTotal[] }>(`/analytics/categories?year=${year}&month=${month}${essential ? `&essential=${essential}` : ""}`),
-  timeline: (year: number, month: number) => request<{ items: TimelinePoint[] }>(`/analytics/timeline?year=${year}&month=${month}`),
+  timeline: (year: number, month: number, essential?: string) =>
+    request<{ items: TimelinePoint[] }>(`/analytics/timeline?year=${year}&month=${month}${essential ? `&essential=${essential}` : ""}`),
+  monthlyTimeline: (year: number, essential?: string) =>
+    request<{ items: TimelinePoint[] }>(`/analytics/monthly?year=${year}${essential ? `&essential=${essential}` : ""}`),
   commentSuggestions: (categoryID: number) => request<{ suggestions: string[] }>(`/transactions/comment-suggestions?category_id=${categoryID}`),
   comparison: () => request<{ current: Summary; previous: Summary }>("/analytics/comparison"),
   budget: (year: number, month: number) => request<{ amount_cents: number; year: number; month: number }>(`/budgets?year=${year}&month=${month}`),

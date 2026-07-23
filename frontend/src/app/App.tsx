@@ -589,13 +589,16 @@ function TransactionList({ items, categories, onChanged, compact }: { items: Tra
 function AnalyticsPage() {
   const [date, setDate] = useState(() => new Date());
   const [essentialFilter, setEssentialFilter] = useState("");
+  const [view, setView] = useState<"days" | "months" | "categories">("days");
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const summary = useQuery({ queryKey: ["summary", year, month], queryFn: () => api.summary(year, month) });
   const categories = useQuery({ queryKey: ["categoryAnalytics", year, month, essentialFilter], queryFn: () => api.categoryAnalytics(year, month, essentialFilter) });
   const allCategories = useQuery({ queryKey: ["categoryAnalytics", year, month, "all"], queryFn: () => api.categoryAnalytics(year, month) });
-  const timeline = useQuery({ queryKey: ["timeline", year, month], queryFn: () => api.timeline(year, month) });
-  const chartData = timeline.data?.items.map((item) => ({ ...item, day: item.date.slice(8), expense: item.expense_cents / 100, income: item.income_cents / 100 })) ?? [];
+  const timeline = useQuery({ queryKey: ["timeline", year, month, essentialFilter], queryFn: () => api.timeline(year, month, essentialFilter) });
+  const monthlyTimeline = useQuery({ queryKey: ["monthlyTimeline", year, essentialFilter], queryFn: () => api.monthlyTimeline(year, essentialFilter) });
+  const dayData = timeline.data?.items.map((item) => ({ ...item, label: item.date.slice(8), expense: item.expense_cents / 100, income: item.income_cents / 100 })) ?? [];
+  const monthData = monthlyTimeline.data?.items.map((item) => ({ ...item, label: monthLabel(Number(item.date.slice(0, 4)), Number(item.date.slice(5, 7))).slice(0, 3), expense: item.expense_cents / 100, income: item.income_cents / 100 })) ?? [];
   const allItems = allCategories.data?.items ?? [];
   const totalExpenses = allItems.reduce((sum, item) => sum + item.amount_cents, 0);
   const essentialTotal = allItems.filter((item) => item.is_essential).reduce((sum, item) => sum + item.amount_cents, 0);
@@ -631,28 +634,46 @@ function AnalyticsPage() {
         <button type="button" className={essentialFilter === "true" ? "selected" : ""} onClick={() => setEssentialFilter("true")}>Обязательные</button>
         <button type="button" className={essentialFilter === "false" ? "selected" : ""} onClick={() => setEssentialFilter("false")}>Необязательные</button>
       </div>
-      <div className="panel h-64 p-3">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData}>
-            <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} />
-            <Tooltip formatter={(value) => formatMoney(Number(value) * 100)} />
-            <Area type="monotone" dataKey="expense" stroke="#f97316" fill="#fed7aa" strokeWidth={2} />
-            <Area type="monotone" dataKey="income" stroke="#22c55e" fill="#bbf7d0" strokeWidth={2} />
-          </AreaChart>
-        </ResponsiveContainer>
+      <div className="segmented segmented-3">
+        <button type="button" className={view === "days" ? "selected" : ""} onClick={() => setView("days")}>Дни</button>
+        <button type="button" className={view === "months" ? "selected" : ""} onClick={() => setView("months")}>Месяцы</button>
+        <button type="button" className={view === "categories" ? "selected" : ""} onClick={() => setView("categories")}>Категории</button>
       </div>
-      <div className="panel h-72 p-3">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={filteredItems}>
-            <XAxis dataKey="name" hide />
-            <Tooltip formatter={(value) => formatMoney(Number(value))} />
-            <Bar dataKey="amount_cents" radius={[6, 6, 0, 0]}>
-              {filteredItems.map((item) => <Cell key={`${item.category_id}-${item.is_essential}`} fill={item.color} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-      <CategoryBreakdown items={filteredItems} total={filteredItems.reduce((sum, item) => sum + item.amount_cents, 0)} />
+      {view === "days" && <TimelineChart data={dayData} emptyText="За выбранный месяц операций пока нет" />}
+      {view === "months" && <TimelineChart data={monthData} emptyText="За выбранный год операций пока нет" />}
+      {view === "categories" && (
+        <>
+          <div className="panel h-72 p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={filteredItems}>
+                <XAxis dataKey="name" hide />
+                <Tooltip formatter={(value) => formatMoney(Number(value))} />
+                <Bar dataKey="amount_cents" radius={[6, 6, 0, 0]}>
+                  {filteredItems.map((item) => <Cell key={`${item.category_id}-${item.is_essential}`} fill={item.color} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <CategoryBreakdown items={filteredItems} total={filteredItems.reduce((sum, item) => sum + item.amount_cents, 0)} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function TimelineChart({ data, emptyText }: { data: Array<{ label: string; expense: number; income: number }>; emptyText: string }) {
+  const hasData = data.some((item) => item.expense > 0 || item.income > 0);
+  if (!hasData) return <div className="empty-panel">{emptyText}</div>;
+  return (
+    <div className="panel h-72 p-3">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data}>
+          <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} />
+          <Tooltip formatter={(value) => formatMoney(Number(value) * 100)} />
+          <Area type="monotone" dataKey="expense" name="Расходы" stroke="#f97316" fill="#fed7aa" strokeWidth={2} />
+          <Area type="monotone" dataKey="income" name="Доходы" stroke="#22c55e" fill="#bbf7d0" strokeWidth={2} />
+        </AreaChart>
+      </ResponsiveContainer>
     </div>
   );
 }
