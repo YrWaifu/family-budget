@@ -171,12 +171,59 @@ select {
   gap: 8px;
 }
 
+.salary-days-panel {
+  display: grid;
+  grid-template-columns: 1fr minmax(120px, 170px);
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+}
+
+.recurring-summary {
+  display: grid;
+  grid-template-columns: 1fr minmax(130px, 170px) minmax(120px, 170px);
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+}
+
+.recurring-summary-total,
+.recurring-plan > div {
+  border: 1px solid rgb(226 232 240);
+  border-radius: 8px;
+  background: rgb(248 250 252);
+  padding: 10px;
+}
+
+.recurring-summary-total span,
+.recurring-plan span {
+  display: block;
+  color: rgb(100 116 139);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.recurring-summary-total strong,
+.recurring-plan strong {
+  display: block;
+  margin-top: 4px;
+  font-weight: 900;
+}
+
+.recurring-plan {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .dark .goal-status-pill {
   background: rgb(56 189 248 / 0.16);
   color: rgb(125 211 252);
 }
 
-.dark .goal-plan > div {
+.dark .goal-plan > div,
+.dark .recurring-summary-total,
+.dark .recurring-plan > div {
   border-color: rgb(30 41 59);
   background: rgb(2 6 23);
 }
@@ -807,6 +854,15 @@ select {
 @media (max-width: 420px) {
   .goal-plan,
   .goal-hero-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .salary-days-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .recurring-summary,
+  .recurring-plan {
     grid-template-columns: 1fr;
   }
 }

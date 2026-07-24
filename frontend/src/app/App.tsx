@@ -747,7 +747,9 @@ function CategoryBreakdown({ items, total }: { items: CategoryTotal[]; total: nu
 function GoalsPage() {
   const queryClient = useQueryClient();
   const goals = useQuery({ queryKey: ["goals"], queryFn: api.goals });
+  const [salaryDaysInput, setSalaryDaysInput] = useState(() => localStorage.getItem("salary_days") ?? "");
   const items = goals.data?.goals ?? [];
+  const salaryDays = parseSalaryDays(salaryDaysInput);
   const activeGoals = items
     .filter((goal) => !goal.is_completed)
     .sort((left, right) => goalPriority(left) - goalPriority(right));
@@ -755,9 +757,12 @@ function GoalsPage() {
   const targetTotal = activeGoals.reduce((sum, goal) => sum + goal.target_amount_cents, 0);
   const currentTotal = activeGoals.reduce((sum, goal) => sum + goal.current_amount_cents, 0);
   const remainingTotal = Math.max(0, targetTotal - currentTotal);
-  const monthlyPlan = activeGoals.reduce((sum, goal) => sum + goalMonthlyNeed(goal), 0);
+  const salaryPlan = activeGoals.reduce((sum, goal) => sum + (goalPerSalaryNeed(goal, salaryDays) ?? 0), 0);
   const closestGoal = activeGoals[0];
   const progress = targetTotal ? Math.min(100, (currentTotal / targetTotal) * 100) : 0;
+  useEffect(() => {
+    localStorage.setItem("salary_days", salaryDaysInput);
+  }, [salaryDaysInput]);
   return (
     <div className="space-y-4 pb-8">
       <section className="hero-panel">
@@ -782,8 +787,8 @@ function GoalsPage() {
             <strong>{formatMoney(remainingTotal)}</strong>
           </div>
           <div>
-            <span>Откладывать в месяц</span>
-            <strong>{monthlyPlan ? formatMoney(monthlyPlan) : "без срока"}</strong>
+            <span>С каждой зарплаты</span>
+            <strong>{salaryPlan ? formatMoney(salaryPlan) : "нужны дни"}</strong>
           </div>
         </div>
         {closestGoal && (
@@ -792,10 +797,25 @@ function GoalsPage() {
           </p>
         )}
       </section>
-      <GoalRow onSaved={() => queryClient.invalidateQueries()} />
+      <section className="panel salary-days-panel">
+        <div className="min-w-0 flex-1">
+          <h2 className="font-black">Зарплатные дни</h2>
+          <p className="text-sm font-bold text-slate-500">
+            {salaryDays.length ? `Расчет по дням: ${salaryDays.join(", ")}` : "Укажи числа месяца через запятую"}
+          </p>
+        </div>
+        <input
+          className="plain-input"
+          inputMode="numeric"
+          value={salaryDaysInput}
+          onChange={(event) => setSalaryDaysInput(event.target.value)}
+          placeholder="5, 20"
+        />
+      </section>
+      <GoalRow salaryDays={salaryDays} onSaved={() => queryClient.invalidateQueries()} />
       {activeGoals.length ? (
         <div className="space-y-3">
-          {activeGoals.map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)}
+          {activeGoals.map((goal) => <GoalRow key={goal.id} goal={goal} salaryDays={salaryDays} onSaved={() => queryClient.invalidateQueries()} />)}
         </div>
       ) : (
         <div className="empty-panel">Целей пока нет. Добавь первую, и здесь появится понятный план накопления.</div>
@@ -803,11 +823,22 @@ function GoalsPage() {
       {completedGoals.length > 0 && (
         <section className="space-y-2">
           <h2 className="px-1 text-sm font-black uppercase text-slate-500">Завершенные</h2>
-          {completedGoals.map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)}
+          {completedGoals.map((goal) => <GoalRow key={goal.id} goal={goal} salaryDays={salaryDays} onSaved={() => queryClient.invalidateQueries()} />)}
         </section>
       )}
     </div>
   );
+}
+
+function parseSalaryDays(value: string): number[] {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,\s;]+/)
+        .map((part) => Number(part))
+        .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31),
+    ),
+  ).sort((left, right) => left - right);
 }
 
 function goalDateValue(value: string | null | undefined): string {
@@ -829,13 +860,51 @@ function goalRemaining(goal: Goal): number {
   return Math.max(0, goal.target_amount_cents - goal.current_amount_cents);
 }
 
-function goalMonthlyNeed(goal: Goal): number {
+function daysInMonth(year: number, monthIndex: number): number {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function salaryEventsUntil(deadlineValue: string, salaryDays: number[]): number {
+  const [year, month, day] = deadlineValue.split("-").map(Number);
+  if (!year || !month || !day || !salaryDays.length) return 0;
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const deadline = new Date(year, month - 1, day);
+  const events = new Set<string>();
+  for (let cursor = new Date(start.getFullYear(), start.getMonth(), 1); cursor <= deadline; cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)) {
+    for (const salaryDay of salaryDays) {
+      const date = new Date(cursor.getFullYear(), cursor.getMonth(), Math.min(salaryDay, daysInMonth(cursor.getFullYear(), cursor.getMonth())));
+      if (date >= start && date <= deadline) events.add(isoDate(date));
+    }
+  }
+  return events.size;
+}
+
+function goalPerSalaryNeed(goal: Goal, salaryDays: number[]): number | null {
   const remaining = goalRemaining(goal);
   if (!remaining) return 0;
-  const daysLeft = goalDaysLeft(goal);
-  if (daysLeft === null) return 0;
-  if (daysLeft <= 0) return remaining;
-  return Math.ceil(remaining / Math.max(1, Math.ceil(daysLeft / 30)));
+  const deadline = goalDateValue(goal.deadline);
+  if (!deadline || !salaryDays.length) return null;
+  return Math.ceil(remaining / Math.max(1, salaryEventsUntil(deadline, salaryDays)));
+}
+
+function recurringDueDate(dayOfMonth: number): Date {
+  const today = new Date();
+  const currentMonthDay = Math.min(dayOfMonth, daysInMonth(today.getFullYear(), today.getMonth()));
+  const thisMonth = new Date(today.getFullYear(), today.getMonth(), currentMonthDay);
+  if (thisMonth >= new Date(today.getFullYear(), today.getMonth(), today.getDate())) return thisMonth;
+  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  return new Date(nextMonth.getFullYear(), nextMonth.getMonth(), Math.min(dayOfMonth, daysInMonth(nextMonth.getFullYear(), nextMonth.getMonth())));
+}
+
+function recurringSalaryPlan(payment: RecurringPayment, salaryDays: number[]): { perSalary: number | null; salaryCount: number; dueDate: Date } {
+  const dueDate = recurringDueDate(payment.day_of_month);
+  const salaryCount = salaryEventsUntil(isoDate(dueDate), salaryDays);
+  return {
+    perSalary: salaryDays.length ? Math.ceil(payment.amount_cents / Math.max(1, salaryCount)) : null,
+    salaryCount,
+    dueDate,
+  };
 }
 
 function goalPriority(goal: Goal): number {
@@ -860,6 +929,12 @@ function SettingsPage() {
   const recurring = useQuery({ queryKey: ["recurring"], queryFn: api.recurring });
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const [categorySearch, setCategorySearch] = useState("");
+  const [salaryDaysInput, setSalaryDaysInput] = useState(() => localStorage.getItem("salary_days") ?? "");
+  const salaryDays = parseSalaryDays(salaryDaysInput);
+  const recurringItems = recurring.data?.recurring_payments ?? [];
+  const recurringSalaryTotal = recurringItems
+    .filter((payment) => payment.is_active)
+    .reduce((sum, payment) => sum + (recurringSalaryPlan(payment, salaryDays).perSalary ?? 0), 0);
   const filteredCategories = useMemo(() => {
     const query = categorySearch.trim().toLowerCase();
     const items = categories.data?.categories ?? [];
@@ -869,6 +944,9 @@ function SettingsPage() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+  useEffect(() => {
+    localStorage.setItem("salary_days", salaryDaysInput);
+  }, [salaryDaysInput]);
   return (
     <div className="space-y-4 pb-8">
       <div className="panel flex items-center justify-between p-4">
@@ -891,14 +969,27 @@ function SettingsPage() {
           {!filteredCategories.length && <div className="empty-panel">Категория не найдена</div>}
         </Tabs.Content>
         <Tabs.Content value="regular" className="space-y-2">
-          <div className="panel space-y-1 p-4">
-            <h2 className="text-lg font-bold">Регулярные расходы</h2>
-            <p className="text-sm text-slate-500">
-              Это шаблоны для повторяющихся трат: аренда, связь, подписки. В день списания нажми «Записать расход», и приложение добавит обычную операцию в историю.
-            </p>
+          <div className="panel recurring-summary">
+            <div>
+              <h2 className="text-lg font-black">Регулярные расходы</h2>
+              <p className="text-sm font-bold text-slate-500">
+                {salaryDays.length ? `Зарплатные дни: ${salaryDays.join(", ")}` : "Укажи зарплатные дни, чтобы видеть сумму с каждой зарплаты"}
+              </p>
+            </div>
+            <div className="recurring-summary-total">
+              <span>Отложить с зарплаты</span>
+              <strong>{recurringSalaryTotal ? formatMoney(recurringSalaryTotal) : "0 ₽"}</strong>
+            </div>
+            <input
+              className="plain-input"
+              inputMode="numeric"
+              value={salaryDaysInput}
+              onChange={(event) => setSalaryDaysInput(event.target.value)}
+              placeholder="5, 20"
+            />
           </div>
-          <RecurringRow categories={expenseCategories.data?.categories ?? []} onSaved={() => queryClient.invalidateQueries()} />
-          {(recurring.data?.recurring_payments ?? []).map((payment) => <RecurringRow key={payment.id} payment={payment} categories={expenseCategories.data?.categories ?? []} onSaved={() => queryClient.invalidateQueries()} />)}
+          <RecurringRow categories={expenseCategories.data?.categories ?? []} salaryDays={salaryDays} onSaved={() => queryClient.invalidateQueries()} />
+          {recurringItems.map((payment) => <RecurringRow key={payment.id} payment={payment} categories={expenseCategories.data?.categories ?? []} salaryDays={salaryDays} onSaved={() => queryClient.invalidateQueries()} />)}
         </Tabs.Content>
         <Tabs.Content value="backup" className="space-y-2">
           <div className="panel space-y-3 p-4">
@@ -1024,7 +1115,7 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
   );
 }
 
-function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
+function GoalRow({ goal, salaryDays, onSaved }: { goal?: Goal; salaryDays: number[]; onSaved: () => void }) {
   const isNew = !goal;
   const [name, setName] = useState(goal?.name ?? "");
   const [target, setTarget] = useState(goal ? String(goal.target_amount_cents / 100) : "");
@@ -1034,7 +1125,8 @@ function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
   const [message, setMessage] = useState("");
   const progress = goal ? Math.min(100, Math.round((goal.current_amount_cents / Math.max(1, goal.target_amount_cents)) * 100)) : 0;
   const remaining = goal ? goalRemaining(goal) : Math.max(0, amountToCents(target) - amountToCents(current));
-  const monthlyNeed = goal ? goalMonthlyNeed(goal) : 0;
+  const salaryNeed = goal ? goalPerSalaryNeed(goal, salaryDays) : null;
+  const salaryCount = goal ? salaryEventsUntil(goalDateValue(goal.deadline), salaryDays) : 0;
   const quickAmounts = [1000, 3000, 5000].map((value) => value * 100).filter((value) => value < remaining);
   if (goal && remaining > 0 && !quickAmounts.includes(remaining)) quickAmounts.push(remaining);
   const save = useMutation({
@@ -1113,8 +1205,8 @@ function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
             <strong>{formatMoney(remaining)}</strong>
           </div>
           <div>
-            <span>План</span>
-            <strong>{monthlyNeed ? `${formatMoney(monthlyNeed)} / мес.` : "без срока"}</strong>
+            <span>С зарплаты</span>
+            <strong>{salaryNeed === null ? "нужны дни" : salaryNeed ? formatMoney(salaryNeed) : "готово"}</strong>
           </div>
         </div>
       )}
@@ -1125,6 +1217,11 @@ function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
             <div className="progress-fill bg-sky-500" style={{ width: `${progress}%` }} />
           </div>
           {remaining === 0 && <p className="text-sm font-bold text-emerald-600">Цель набрана. Можно отметить ее завершенной.</p>}
+          {remaining > 0 && salaryNeed !== null && (
+            <p className="text-sm font-bold text-slate-500">
+              До срока осталось зарплат: {salaryCount || 1}. Откладывай по {formatMoney(salaryNeed)}.
+            </p>
+          )}
         </div>
       )}
 
@@ -1187,13 +1284,14 @@ function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
   );
 }
 
-function RecurringRow({ payment, categories, onSaved }: { payment?: RecurringPayment; categories: Category[]; onSaved: () => void }) {
+function RecurringRow({ payment, categories, salaryDays, onSaved }: { payment?: RecurringPayment; categories: Category[]; salaryDays: number[]; onSaved: () => void }) {
   const isNew = !payment;
   const [name, setName] = useState(payment?.name ?? "");
   const [amount, setAmount] = useState(payment ? String(payment.amount_cents / 100) : "");
   const [categoryID, setCategoryID] = useState(payment?.category_id ?? categories[0]?.id ?? 0);
   const [day, setDay] = useState(payment?.day_of_month ?? 1);
   const [message, setMessage] = useState("");
+  const paymentPlan = payment ? recurringSalaryPlan(payment, salaryDays) : null;
   useEffect(() => {
     if (!categoryID && categories[0]) setCategoryID(categories[0].id);
   }, [categories, categoryID]);
@@ -1202,7 +1300,37 @@ function RecurringRow({ payment, categories, onSaved }: { payment?: RecurringPay
   const remove = useMutation({ mutationFn: () => api.deleteRecurring(payment!.id), onSuccess: onSaved });
   return (
     <div className="panel space-y-3 p-3">
-      <h3 className="font-bold">{isNew ? "Новый шаблон" : name}</h3>
+      <div className="flex items-center gap-3">
+        {payment && (
+          <span className="category-badge small" style={{ backgroundColor: payment.category_color }}>
+            <CategoryIcon name={payment.category_icon} className="h-5 w-5 text-white" />
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate font-black">{isNew ? "Новый шаблон" : name}</h3>
+          {paymentPlan && (
+            <p className="text-xs font-bold text-slate-500">
+              Списание {formatShortDate(isoDate(paymentPlan.dueDate))}
+            </p>
+          )}
+        </div>
+      </div>
+      {payment && paymentPlan && (
+        <div className="recurring-plan">
+          <div>
+            <span>Платеж</span>
+            <strong>{formatMoney(payment.amount_cents)}</strong>
+          </div>
+          <div>
+            <span>С зарплаты</span>
+            <strong>{paymentPlan.perSalary === null ? "нужны дни" : formatMoney(paymentPlan.perSalary)}</strong>
+          </div>
+          <div>
+            <span>До списания</span>
+            <strong>{paymentPlan.salaryCount || 1} зарпл.</strong>
+          </div>
+        </div>
+      )}
       <label className="field">
         <span>Название</span>
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Например, интернет" />
