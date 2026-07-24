@@ -748,31 +748,109 @@ function GoalsPage() {
   const queryClient = useQueryClient();
   const goals = useQuery({ queryKey: ["goals"], queryFn: api.goals });
   const items = goals.data?.goals ?? [];
-  const targetTotal = items.reduce((sum, goal) => sum + goal.target_amount_cents, 0);
-  const currentTotal = items.reduce((sum, goal) => sum + goal.current_amount_cents, 0);
+  const activeGoals = items
+    .filter((goal) => !goal.is_completed)
+    .sort((left, right) => goalPriority(left) - goalPriority(right));
+  const completedGoals = items.filter((goal) => goal.is_completed);
+  const targetTotal = activeGoals.reduce((sum, goal) => sum + goal.target_amount_cents, 0);
+  const currentTotal = activeGoals.reduce((sum, goal) => sum + goal.current_amount_cents, 0);
+  const remainingTotal = Math.max(0, targetTotal - currentTotal);
+  const monthlyPlan = activeGoals.reduce((sum, goal) => sum + goalMonthlyNeed(goal), 0);
+  const closestGoal = activeGoals[0];
   const progress = targetTotal ? Math.min(100, (currentTotal / targetTotal) * 100) : 0;
   return (
     <div className="space-y-4 pb-8">
       <section className="hero-panel">
-        <p className="text-sm text-white/70">Цели</p>
-        <strong className="mt-1 block text-4xl font-black tracking-normal">{formatMoney(currentTotal)}</strong>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm text-white/70">Цели</p>
+            <strong className="mt-1 block text-4xl font-black tracking-normal">{formatMoney(currentTotal)}</strong>
+            <p className="mt-1 text-sm font-bold text-white/75">накоплено из {formatMoney(targetTotal)}</p>
+          </div>
+          <span className="summary-pill">{activeGoals.length ? `${activeGoals.length} активн.` : "план пуст"}</span>
+        </div>
         <div className="mt-5 flex items-center justify-between text-sm font-bold text-white/80">
-          <span>Накоплено</span>
+          <span>Общий прогресс</span>
           <span>{Math.round(progress)}%</span>
         </div>
         <div className="mt-2 h-2 rounded-full bg-white/15">
           <div className="h-full rounded-full bg-white" style={{ width: `${progress}%` }} />
         </div>
-        <p className="mt-3 text-sm text-white/70">До всех целей осталось {formatMoney(Math.max(0, targetTotal - currentTotal))}</p>
+        <div className="goal-hero-grid">
+          <div>
+            <span>Осталось</span>
+            <strong>{formatMoney(remainingTotal)}</strong>
+          </div>
+          <div>
+            <span>Откладывать в месяц</span>
+            <strong>{monthlyPlan ? formatMoney(monthlyPlan) : "без срока"}</strong>
+          </div>
+        </div>
+        {closestGoal && (
+          <p className="mt-3 text-sm font-bold text-white/75">
+            Ближайшая: {closestGoal.name} · {goalDeadlineText(closestGoal)}
+          </p>
+        )}
       </section>
       <GoalRow onSaved={() => queryClient.invalidateQueries()} />
-      {items.length ? (
-        items.map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)
+      {activeGoals.length ? (
+        <div className="space-y-3">
+          {activeGoals.map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)}
+        </div>
       ) : (
-        <div className="empty-panel">Целей пока нет</div>
+        <div className="empty-panel">Целей пока нет. Добавь первую, и здесь появится понятный план накопления.</div>
+      )}
+      {completedGoals.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="px-1 text-sm font-black uppercase text-slate-500">Завершенные</h2>
+          {completedGoals.map((goal) => <GoalRow key={goal.id} goal={goal} onSaved={() => queryClient.invalidateQueries()} />)}
+        </section>
       )}
     </div>
   );
+}
+
+function goalDateValue(value: string | null | undefined): string {
+  return value ? value.slice(0, 10) : "";
+}
+
+function goalDaysLeft(goal: Goal): number | null {
+  const value = goalDateValue(goal.deadline);
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const deadline = new Date(year, month - 1, day).getTime();
+  return Math.ceil((deadline - start) / 86400000);
+}
+
+function goalRemaining(goal: Goal): number {
+  return Math.max(0, goal.target_amount_cents - goal.current_amount_cents);
+}
+
+function goalMonthlyNeed(goal: Goal): number {
+  const remaining = goalRemaining(goal);
+  if (!remaining) return 0;
+  const daysLeft = goalDaysLeft(goal);
+  if (daysLeft === null) return 0;
+  if (daysLeft <= 0) return remaining;
+  return Math.ceil(remaining / Math.max(1, Math.ceil(daysLeft / 30)));
+}
+
+function goalPriority(goal: Goal): number {
+  const daysLeft = goalDaysLeft(goal);
+  if (daysLeft !== null) return daysLeft;
+  return 100000 + goalRemaining(goal);
+}
+
+function goalDeadlineText(goal: Goal): string {
+  const daysLeft = goalDaysLeft(goal);
+  if (daysLeft === null) return "без срока";
+  const date = formatShortDate(dateInputToISO(goalDateValue(goal.deadline)));
+  if (daysLeft < 0) return `срок был ${date}`;
+  if (daysLeft === 0) return `срок сегодня`;
+  return `${date}, осталось ${daysLeft} дн.`;
 }
 
 function SettingsPage() {
@@ -947,33 +1025,109 @@ function CategoryEditor({ category, onSaved }: { category?: Category; onSaved: (
 }
 
 function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
+  const isNew = !goal;
   const [name, setName] = useState(goal?.name ?? "");
   const [target, setTarget] = useState(goal ? String(goal.target_amount_cents / 100) : "");
+  const [current, setCurrent] = useState(goal ? String(goal.current_amount_cents / 100) : "");
+  const [deadline, setDeadline] = useState(goalDateValue(goal?.deadline));
   const [deposit, setDeposit] = useState("");
   const [message, setMessage] = useState("");
-  const save = useMutation({ mutationFn: () => api.saveGoal({ ...goal, name, target_amount_cents: amountToCents(target), current_amount_cents: goal?.current_amount_cents ?? 0, icon: "PiggyBank", color: goal?.color ?? "#38bdf8", is_completed: goal?.is_completed ?? false }), onSuccess: onSaved });
-  const add = useMutation({ mutationFn: () => api.depositGoal(goal!.id, amountToCents(deposit)), onSuccess: () => { setDeposit(""); onSaved(); } });
+  const progress = goal ? Math.min(100, Math.round((goal.current_amount_cents / Math.max(1, goal.target_amount_cents)) * 100)) : 0;
+  const remaining = goal ? goalRemaining(goal) : Math.max(0, amountToCents(target) - amountToCents(current));
+  const monthlyNeed = goal ? goalMonthlyNeed(goal) : 0;
+  const quickAmounts = [1000, 3000, 5000].map((value) => value * 100).filter((value) => value < remaining);
+  if (goal && remaining > 0 && !quickAmounts.includes(remaining)) quickAmounts.push(remaining);
+  const save = useMutation({
+    mutationFn: () =>
+      api.saveGoal({
+        ...goal,
+        name: name.trim(),
+        target_amount_cents: amountToCents(target),
+        current_amount_cents: amountToCents(current),
+        icon: "PiggyBank",
+        color: goal?.color ?? "#38bdf8",
+        deadline: deadline ? dateInputToISO(deadline) : null,
+        is_completed: goal?.is_completed ?? false,
+      }),
+    onSuccess: (savedGoal) => {
+      if (isNew) {
+        setName("");
+        setTarget("");
+        setCurrent("");
+        setDeadline("");
+      }
+      if (!isNew) {
+        setCurrent(String(savedGoal.current_amount_cents / 100));
+      }
+      onSaved();
+    },
+  });
+  const complete = useMutation({
+    mutationFn: () => api.saveGoal({ ...goal, is_completed: !goal!.is_completed }),
+    onSuccess: onSaved,
+  });
+  const add = useMutation({
+    mutationFn: (amount: number) => api.depositGoal(goal!.id, amount),
+    onSuccess: (savedGoal) => {
+      setDeposit("");
+      setCurrent(String(savedGoal.current_amount_cents / 100));
+      onSaved();
+    },
+  });
   const remove = useMutation({ mutationFn: () => api.deleteGoal(goal!.id), onSuccess: onSaved });
-  const progress = goal ? Math.min(100, (goal.current_amount_cents / goal.target_amount_cents) * 100) : 0;
   const saveGoal = () => {
     if (!name.trim() || amountToCents(target) <= 0) {
       setMessage("Заполни название и сумму цели");
+      return;
+    }
+    if (amountToCents(current) > amountToCents(target)) {
+      setMessage("Уже накоплено не может быть больше суммы цели");
       return;
     }
     setMessage("");
     save.mutate();
   };
   return (
-    <div className="panel space-y-4 p-4">
-      <div className="flex items-center gap-3">
+    <div className={`panel goal-card ${goal?.is_completed ? "goal-card-completed" : ""}`}>
+      <div className="goal-card-head">
         <span className="category-badge small" style={{ backgroundColor: goal?.color ?? "#38bdf8" }}>
           <PiggyBank size={20} className="text-white" />
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate font-bold">{goal ? goal.name : "Новая цель"}</h3>
-          {goal && <p className="text-xs text-slate-500">Осталось {formatMoney(Math.max(0, goal.target_amount_cents - goal.current_amount_cents))}</p>}
+          <h3 className="truncate text-lg font-black">{goal ? goal.name : "Новая цель"}</h3>
+          <p className="text-xs font-bold text-slate-500">
+            {goal ? (goal.is_completed ? "готово" : goalDeadlineText(goal)) : "создай цель, срок можно не ставить"}
+          </p>
         </div>
+        {goal && <span className="goal-status-pill">{progress}%</span>}
       </div>
+
+      {goal && (
+        <div className="goal-plan">
+          <div>
+            <span>Накоплено</span>
+            <strong>{formatMoney(goal.current_amount_cents)}</strong>
+          </div>
+          <div>
+            <span>Осталось</span>
+            <strong>{formatMoney(remaining)}</strong>
+          </div>
+          <div>
+            <span>План</span>
+            <strong>{monthlyNeed ? `${formatMoney(monthlyNeed)} / мес.` : "без срока"}</strong>
+          </div>
+        </div>
+      )}
+
+      {goal && (
+        <div className="space-y-2">
+          <div className="progress-track">
+            <div className="progress-fill bg-sky-500" style={{ width: `${progress}%` }} />
+          </div>
+          {remaining === 0 && <p className="text-sm font-bold text-emerald-600">Цель набрана. Можно отметить ее завершенной.</p>}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <label className="field">
           <span>Название</span>
@@ -983,31 +1137,47 @@ function GoalRow({ goal, onSaved }: { goal?: Goal; onSaved: () => void }) {
           <span>Нужно накопить</span>
           <input inputMode="decimal" value={target} onChange={(event) => setTarget(event.target.value)} placeholder="100000" />
         </label>
+        <label className="field">
+          <span>Уже накоплено</span>
+          <input inputMode="decimal" value={current} onChange={(event) => setCurrent(event.target.value)} placeholder="0" />
+        </label>
+        <label className="field">
+          <span>Хочу к дате</span>
+          <input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
+        </label>
       </div>
+
       {goal && (
         <>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm font-bold">
-              <span>{formatMoney(goal.current_amount_cents)}</span>
-              <span>{Math.round(progress)}%</span>
+          {quickAmounts.length > 0 && (
+            <div className="goal-quick-grid">
+              {quickAmounts.map((amount) => (
+                <button key={amount} className="secondary-button justify-center" type="button" disabled={add.isPending} onClick={() => add.mutate(amount)}>
+                  +{formatMoney(amount)}
+                </button>
+              ))}
             </div>
-            <div className="progress-track">
-              <div className="progress-fill bg-sky-500" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
+          )}
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <label className="field">
-              <span>Пополнить</span>
+              <span>Пополнить вручную</span>
               <input inputMode="decimal" value={deposit} onChange={(event) => setDeposit(event.target.value)} placeholder="5000" />
             </label>
-            <button className="icon-button self-end" disabled={amountToCents(deposit) <= 0 || add.isPending} onClick={() => add.mutate()}><Plus size={18} /></button>
+            <button className="icon-button self-end" disabled={amountToCents(deposit) <= 0 || add.isPending} onClick={() => add.mutate(amountToCents(deposit))} title="Пополнить"><Plus size={18} /></button>
           </div>
         </>
       )}
       {message && <p className="error-text">{message}</p>}
-      <button className="primary-button w-full justify-center" onClick={saveGoal} disabled={save.isPending}>
-        <Check size={18} /> {goal ? "Сохранить цель" : "Создать цель"}
-      </button>
+      <div className={goal ? "grid grid-cols-2 gap-2" : ""}>
+        <button className="primary-button w-full justify-center" onClick={saveGoal} disabled={save.isPending}>
+          <Check size={18} /> {goal ? "Сохранить" : "Создать цель"}
+        </button>
+        {goal && (
+          <button className="secondary-button justify-center" type="button" onClick={() => complete.mutate()} disabled={complete.isPending}>
+            {goal.is_completed ? "Вернуть" : "Завершить"}
+          </button>
+        )}
+      </div>
       {goal && (
         <button className="danger-button" onClick={() => window.confirm("Удалить цель?") && remove.mutate()}>
           <Trash2 size={18} /> Удалить цель
