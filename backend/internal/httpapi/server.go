@@ -617,13 +617,18 @@ func (s *Server) exportData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="family-budget.csv"`)
 	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(w)
-	_ = writer.Write([]string{"дата", "тип", "сумма", "категория", "комментарий", "автор"})
+	_ = writer.Write([]string{"дата", "тип", "сумма", "категория", "обязательность", "комментарий", "автор"})
 	for _, t := range list {
+		essential := "необязательно"
+		if t.IsEssential {
+			essential = "обязательно"
+		}
 		_ = writer.Write([]string{
 			t.TransactionDate.In(s.cfg.Location).Format("2006-01-02 15:04"),
 			t.Type,
 			fmt.Sprintf("%d.%02d", t.AmountCents/100, t.AmountCents%100),
 			t.CategoryName,
+			essential,
 			t.Comment,
 			t.AuthorName,
 		})
